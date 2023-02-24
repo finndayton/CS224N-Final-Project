@@ -1,3 +1,6 @@
+# Updated Setup Instructions
+Run `conda env create -f setup.yml` and then `conda activate cs224n_dfp1`
+
 # CS 224N Default Final Project - Multitask BERT
 
 This is the starting code for the default final project for the Stanford CS 224N class. You can find the handout [here](https://web.stanford.edu/class/cs224n/project/default-final-project-bert-handout.pdf)
