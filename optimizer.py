@@ -50,16 +50,31 @@ class AdamW(Optimizer):
                 # The hyperparameters can be read from the `group` dictionary
                 # (they are lr, betas, eps, weight_decay, as saved in the constructor).
                 #
-                # 1- Update first and second moments of the gradients
+                if len(state) == 0:
+                    state["t"] = 0
+                    state["m"] = 0
+                    state["v"] = 0
+                state["t"] = state["t"] + 1
+                t = state["t"]
+
+                # 1- Update first and second moments of the gradients      
+                beta1, beta2 = group["betas"]
+                m = beta1 * state["m"] + (1-beta1) * grad
+                v = beta2 * state["v"] + (1-beta2) * grad**2
+                state["m"] = m
+                state["v"] = v
+
                 # 2- Apply bias correction
                 #    (using the "efficient version" given in https://arxiv.org/abs/1412.6980;
                 #     also given in the pseudo-code in the project description).
+                a_corrected = alpha * math.sqrt(1-beta2**t) / (1 - beta1**t)
+
                 # 3- Update parameters (p.data).
+                p.data -= torch.div(a_corrected * m, (torch.sqrt(v)+group["eps"]))
+
                 # 4- After that main gradient-based update, update again using weight decay
                 #    (incorporating the learning rate again).
-
-                ### TODO
-                raise NotImplementedError
+                p.data -= (alpha * group["weight_decay"] * p.data)
 
 
         return loss
