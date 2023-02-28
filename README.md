@@ -41,7 +41,7 @@ Parts of the code are from the [`transformers`](https://github.com/huggingface/t
 
 Go crazy! 💪
 
-4) Commit your changes
+4) Commit your changes!
 
 <img width="726" alt="Screen Shot 2022-02-18 at 5 02 04 PM" src="https://user-images.githubusercontent.com/61396391/221059978-264a6b55-e950-4ad2-90d4-f2801e2cb11d.png">
 
