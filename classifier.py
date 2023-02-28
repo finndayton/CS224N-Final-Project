@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import csv
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import classification_report, f1_score, recall_score, accuracy_score
@@ -45,7 +46,8 @@ class BertSentimentClassifier(torch.nn.Module):
                 param.requires_grad = True
 
         ### TODO
-        raise NotImplementedError
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.ln = nn.Linear(config.hidden_size, 5)
 
 
     def forward(self, input_ids, attention_mask):
@@ -54,7 +56,9 @@ class BertSentimentClassifier(torch.nn.Module):
         # HINT: you should consider what is the appropriate output to return given that
         # the training loop currently uses F.cross_entropy as the loss function.
         ### TODO
-        raise NotImplementedError
+        outputs = self.dropout(self.bert(input_ids, attention_mask))
+        probs = self.ln(outputs)
+        return probs
 
 
 
