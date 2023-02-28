@@ -50,12 +50,12 @@ class BertSelfAttention(nn.Module):
 
     bs, nh, sl, hs = query.shape
 
+    # [bs, nh, sl, sl] = [bs, nh, sl, hs] x [bs, nh, hs, sl]
     att = (query @ key.transpose(-2, -1)) * (1.0 / math.sqrt(hs))
-    
-    att = att.masked_fill(attention_mask[:,:,:sl,:sl] == 0, -1e10)
+    att = att + attention_mask
     att = F.softmax(att, dim=-1)
     att = self.dropout(att)
-    y = att @ value # (B, nh, sl, sl) x (B, nh, sl, hs) -> (B, nh, sl, hs)
+    y = att @ value # (B, nh, sl, hs) = (B, nh, sl, sl) x (B, nh, sl, hs)
     y = y.transpose(1, 2).contiguous().view(bs, sl, nh*hs) # re-assemble all head outputs side by side
 
     return y
@@ -105,7 +105,7 @@ class BertLayer(nn.Module):
     """
     # Hint: Remember that BERT applies to the output of each sub-layer, before it is added to the sub-layer input and normalized 
     ### TODO
-    out = input  + dropout(dense_layer(output))
+    out = input + dropout(dense_layer(output))
     out = ln_layer(out)
     return out
 
@@ -123,19 +123,17 @@ class BertLayer(nn.Module):
     ### TODO
 
     # 1. a multi-head attention layer (BertSelfAttention)
-    input1 = hidden_states
-    out = self.self_attention(hidden_states, attention_mask)
+    multi_head_attn_input = hidden_states
+    multi_head_attn_out = self.self_attention(hidden_states, attention_mask)
 
     # 2. a add-norm that takes the input and output of the multi-head attention layer
-    out = self.add_norm(input1, out, self.attention_dense, self.attention_dropout, self.attention_layer_norm)
-    input2 = out
+    feed_forward_input = self.add_norm(multi_head_attn_input, multi_head_attn_out, self.attention_dense, self.attention_dropout, self.attention_layer_norm)
     
     # 3. a feed forward layer
-    out = self.interm_dense(out)
-    out = self.interm_af(out)
+    feed_forward_out = self.interm_af(self.interm_dense(feed_forward_input))
 
     # 4. a add-norm that takes the input and output of the feed forward layer
-    out = self.add_norm(input2, out, self.out_dense, self.out_dropout, self.out_layer_norm)
+    out = self.add_norm(feed_forward_input, feed_forward_out, self.out_dense, self.out_dropout, self.out_layer_norm)
 
     return out
 
