@@ -52,7 +52,12 @@ class MultitaskBERT(nn.Module):
             elif config.option == 'finetune':
                 param.requires_grad = True
         ### TODO
-        raise NotImplementedError
+        self.sentiment_dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.sentiment_ln = nn.Linear(config.hidden_size, 5)
+
+        self.paraphrase_ln = nn.Linear(config.hidden_size * 2, 1)
+
+        self.similarity_ln = nn.Linear(config.hidden_size * 2, 5)
 
 
     def forward(self, input_ids, attention_mask):
@@ -62,7 +67,8 @@ class MultitaskBERT(nn.Module):
         # When thinking of improvements, you can later try modifying this
         # (e.g., by adding other layers).
         ### TODO
-        raise NotImplementedError
+        bert_output = self.bert(input_ids, attention_mask)
+        return bert_output["pooled_output"]
 
 
     def predict_sentiment(self, input_ids, attention_mask):
@@ -72,7 +78,10 @@ class MultitaskBERT(nn.Module):
         Thus, your output should contain 5 logits for each sentence.
         '''
         ### TODO
-        raise NotImplementedError
+        bert_output = self.bert(input_ids, attention_mask)
+        outputs = self.sentiment_dropout(bert_output['pooler_output'])
+        probs = self.sentiment_ln(outputs)
+        return probs
 
 
     def predict_paraphrase(self,
@@ -83,7 +92,14 @@ class MultitaskBERT(nn.Module):
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
         ### TODO
-        raise NotImplementedError
+        bert_output_1 = self.bert(input_ids_1, attention_mask_1)
+        bert_output_2 = self.bert(input_ids_2, attention_mask_2)
+
+        # Concatenate the pooled outputs
+        concatenated_output = torch.cat([bert_output_1["pooled_output"], bert_output_2["pooled_output"]], dim=1)
+
+        return self.paraphrase_ln(concatenated_output)
+
 
 
     def predict_similarity(self,
@@ -94,7 +110,13 @@ class MultitaskBERT(nn.Module):
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
         ### TODO
-        raise NotImplementedError
+        bert_output_1 = self.bert(input_ids_1, attention_mask_1)
+        bert_output_2 = self.bert(input_ids_2, attention_mask_2)
+
+        # Concatenate the pooled outputs
+        concatenated_output = torch.cat([bert_output_1["pooled_output"], bert_output_2["pooled_output"]], dim=1)
+
+        return self.similarity_ln(concatenated_output)
 
 
 
