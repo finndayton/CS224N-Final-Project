@@ -17,3 +17,7 @@ dependencies:
     - scikit-learn
     - tokenizers
     - explainaboard_client
+    - datasets
+    - numpy
+    - sklearn
+    - explainaboard_client
