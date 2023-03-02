@@ -141,8 +141,8 @@ def train_multitask(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
     # Load data
     # Create the data and its corresponding datasets and dataloader
-    sst_train_data, num_labels,para_train_data, sts_train_data = load_multitask_data(args.sst_train,args.para_train,args.sts_train, split ='train')
-    sst_dev_data, num_labels,para_dev_data, sts_dev_data = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, split ='train')
+    sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train')
+    sst_dev_data, num_sentiment_labels,para_dev_data, sts_dev_data, multinli_dev_data, num_multinli_labels = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split ='train')
 
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
@@ -154,7 +154,7 @@ def train_multitask(args):
 
     # Init model
     config = {'hidden_dropout_prob': args.hidden_dropout_prob,
-              'num_labels': num_labels,
+              'num_labels': num_sentiment_labels,
               'hidden_size': 768,
               'data_dir': '.',
               'option': args.option}
@@ -231,6 +231,9 @@ def get_args():
     parser.add_argument("--sts_train", type=str, default="data/sts-train.csv")
     parser.add_argument("--sts_dev", type=str, default="data/sts-dev.csv")
     parser.add_argument("--sts_test", type=str, default="data/sts-test-student.csv")
+
+    parser.add_argument("--multinli_train", type=str, default="data/multinli_1.0/multinli_1.0_train.jsonl")
+    parser.add_argument("--multinli_dev", type=str, default="data/multinli_1.0/multinli_1.0_dev_matched.jsonl")
 
     parser.add_argument("--seed", type=int, default=11711)
     parser.add_argument("--epochs", type=int, default=10)

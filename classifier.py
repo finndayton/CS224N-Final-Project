@@ -47,7 +47,7 @@ class BertSentimentClassifier(torch.nn.Module):
 
         ### TODO
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.ln = nn.Linear(config.hidden_size, 5)
+        self.ln = nn.Linear(config.hidden_size, self.num_labels)
 
 
     def forward(self, input_ids, attention_mask):
@@ -155,6 +155,7 @@ def load_data(filename, flag='train'):
                 if label not in num_labels:
                     num_labels[label] = len(num_labels)
                 data.append((sent, label,sent_id))
+        print("What the heck is num_labels: ", num_labels)
         print(f"load {len(data)} data from {filename}")
 
     if flag == 'train':
@@ -255,6 +256,7 @@ def train(args):
               'option': args.option}
 
     config = SimpleNamespace(**config)
+    print("What the heck is config: ", config)
 
     model = BertSentimentClassifier(config)
     model = model.to(device)

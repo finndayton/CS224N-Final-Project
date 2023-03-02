@@ -13,11 +13,13 @@ import csv
 import torch
 from torch.utils.data import Dataset
 from tokenizer import BertTokenizer
+import json
+from collections import defaultdict
 
 
 def preprocess_string(s):
     return ' '.join(s.lower()
-                    .replace('.', ' .')
+                    .replace('.', '. ')
                     .replace('?', ' ?')
                     .replace(',', ' ,')
                     .replace('\'', ' \'')
@@ -243,11 +245,37 @@ def load_multitask_test_data():
 
     return sentiment_data, paraphrase_data, similarity_data
 
+def get_multinli_int_label(label):
+    if label == "neutral":
+        return 0
+    elif label == "entailment":
+        return 1
+    elif label == "contradiction":
+        return 2
+    else:
+        return None
 
-
-def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filename,split='train'):
+def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filename, multinli_filename, split='train'):
+    multinli_data = []
+    multinli_labels = defaultdict(int)
+    with open(multinli_filename, 'r') as fp:
+        for line in fp:
+            data = json.loads(line)
+            sent_id = data['pairID'].lower().strip()
+            label = get_multinli_int_label(data["gold_label"])
+            if label is not None:
+                multinli_labels[label]+=1
+                multinli_data.append((preprocess_string(data['sentence1']),
+                                preprocess_string(data['sentence2']),
+                                label,
+                                sent_id))
+    print(f"Loaded {len(multinli_data)} {split} examples from {multinli_filename}")
+    print("Num 'neutral' examples: ", multinli_labels[0])
+    print("Num 'entailment' examples: ", multinli_labels[1])
+    print("Num 'contradiction' examples: ", multinli_labels[2])
+    
     sentiment_data = []
-    num_labels = {}
+    sentiment_labels = {}
     if split == 'test':
         with open(sentiment_filename, 'r') as fp:
             for record in csv.DictReader(fp,delimiter = '\t'):
@@ -260,8 +288,8 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
                 sent = record['sentence'].lower().strip()
                 sent_id = record['id'].lower().strip()
                 label = int(record['sentiment'].strip())
-                if label not in num_labels:
-                    num_labels[label] = len(num_labels)
+                if label not in sentiment_labels:
+                    sentiment_labels[label] = len(sentiment_labels)
                 sentiment_data.append((sent, label,sent_id))
 
     print(f"Loaded {len(sentiment_data)} {split} examples from {sentiment_filename}")
@@ -306,4 +334,4 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
 
     print(f"Loaded {len(similarity_data)} {split} examples from {similarity_filename}")
 
-    return sentiment_data, num_labels, paraphrase_data, similarity_data
+    return sentiment_data, len(sentiment_labels), paraphrase_data, similarity_data, multinli_data, len(multinli_labels)
