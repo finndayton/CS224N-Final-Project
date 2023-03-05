@@ -59,6 +59,8 @@ class MultitaskBERT(nn.Module):
 
         self.similarity_ln = nn.Linear(config.hidden_size * 2, 5)
 
+        self.nli_ln = nn.Linear(config.hidden_size * 2, 3)
+
 
     def forward(self, input_ids, attention_mask):
         'Takes a batch of sentences and produces embeddings for them.'
@@ -68,7 +70,7 @@ class MultitaskBERT(nn.Module):
         # (e.g., by adding other layers).
         ### TODO
         bert_output = self.bert(input_ids, attention_mask)
-        return bert_output["pooled_output"]
+        return bert_output["pooler_output"]
 
 
     def predict_sentiment(self, input_ids, attention_mask):
@@ -96,7 +98,7 @@ class MultitaskBERT(nn.Module):
         bert_output_2 = self.bert(input_ids_2, attention_mask_2)
 
         # Concatenate the pooled outputs
-        concatenated_output = torch.cat([bert_output_1["pooled_output"], bert_output_2["pooled_output"]], dim=1)
+        concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
 
         return self.paraphrase_ln(concatenated_output)
 
@@ -114,9 +116,25 @@ class MultitaskBERT(nn.Module):
         bert_output_2 = self.bert(input_ids_2, attention_mask_2)
 
         # Concatenate the pooled outputs
-        concatenated_output = torch.cat([bert_output_1["pooled_output"], bert_output_2["pooled_output"]], dim=1)
+        concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
 
         return self.similarity_ln(concatenated_output)
+    
+    def predict_nli(self,
+                           input_ids_1, attention_mask_1,
+                           input_ids_2, attention_mask_2):
+        '''Given a batch of pairs of sentences, outputs 3 logits for each of
+            the 3 classes: 'neutral', 'entailment', 'contradiction'
+        '''
+        ### TODO
+        bert_output_1 = self.bert(input_ids_1, attention_mask_1)
+        bert_output_2 = self.bert(input_ids_2, attention_mask_2)
+
+        # Concatenate the pooled outputs
+        concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
+
+        return self.nli_ln(concatenated_output)
+    
 
 
 
@@ -137,8 +155,79 @@ def save_model(model, optimizer, args, config, filepath):
 
 
 ## Currently only trains on sst dataset
+def pretrain_nli(args):
+    device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+    # Load data
+    # Create the data and its corresponding datasets and dataloader
+    sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train')
+    sst_dev_data, num_sentiment_labels,para_dev_data, sts_dev_data, multinli_dev_data, num_multinli_labels = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split ='train')
+
+    multinli_train_data = SentencePairDataset(multinli_train_data, args)
+    multinli_dev_data = SentencePairDataset(multinli_dev_data, args)
+
+    multinli_train_dataloader = DataLoader(multinli_train_data, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=multinli_train_data.collate_fn)
+    multinli_dev_dataloader = DataLoader(multinli_dev_data, shuffle=False, batch_size=args.batch_size,
+                                    collate_fn=multinli_dev_data.collate_fn)
+
+    # Init model
+    config = {'hidden_dropout_prob': args.hidden_dropout_prob,
+              'num_labels': num_sentiment_labels,
+              'hidden_size': 768,
+              'data_dir': '.',
+              'option': args.option}
+
+    config = SimpleNamespace(**config)
+
+    model = MultitaskBERT(config)
+    model = model.to(device)
+
+    lr = args.lr
+    optimizer = AdamW(model.parameters(), lr=lr)
+    best_dev_acc = 0
+
+    # Run for the specified number of epochs
+    for epoch in range(args.epochs):
+        model.train()
+        train_loss = 0
+        num_batches = 0
+        for batch in tqdm(multinli_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
+            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'], batch['attention_mask_1'], 
+                                       batch['token_ids_2'], batch['attention_mask_2'], batch['labels'])
+
+            b_ids_1 = b_ids_1.to(device)
+            b_mask_1 = b_mask_1.to(device)
+            b_ids_2 = b_ids_2.to(device)
+            b_mask_2 = b_mask_2.to(device)
+            b_labels = b_labels.to(device)
+
+            optimizer.zero_grad()
+            logits = model.predict_nli(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
+
+            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item()
+            num_batches += 1
+
+        train_loss = train_loss / (num_batches)
+
+        train_acc, train_f1, *_ = model_eval_sst(multinli_train_dataloader, model, device)
+        dev_acc, dev_f1, *_ = model_eval_sst(multinli_dev_dataloader, model, device)
+
+        if dev_acc > best_dev_acc:
+            best_dev_acc = dev_acc
+            save_model(model, optimizer, args, config, args.nli_pretrain_filepath)
+
+        print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+
+
+## Currently only trains on sst dataset
 def train_multitask(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+
     # Load data
     # Create the data and its corresponding datasets and dataloader
     sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train')
@@ -152,17 +241,23 @@ def train_multitask(args):
     sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=args.batch_size,
                                     collate_fn=sst_dev_data.collate_fn)
 
-    # Init model
-    config = {'hidden_dropout_prob': args.hidden_dropout_prob,
-              'num_labels': num_sentiment_labels,
-              'hidden_size': 768,
-              'data_dir': '.',
-              'option': args.option}
+    if args.nli_pretrain:
+        # Get model from pretrain
+        saved = torch.load(args.nli_pretrain_filepath)
+        config = saved['model_config']
+        model = MultitaskBERT(config)
+    else:
+        # Init model
+        config = {'hidden_dropout_prob': args.hidden_dropout_prob,
+                'num_labels': num_sentiment_labels,
+                'hidden_size': 768,
+                'data_dir': '.',
+                'option': args.option}
 
-    config = SimpleNamespace(**config)
+        config = SimpleNamespace(**config)
 
-    model = MultitaskBERT(config)
-    model = model.to(device)
+        model = MultitaskBERT(config)
+        model = model.to(device)
 
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
@@ -256,13 +351,24 @@ def get_args():
     parser.add_argument("--hidden_dropout_prob", type=float, default=0.3)
     parser.add_argument("--lr", type=float, help="learning rate, default lr for 'pretrain': 1e-3, 'finetune': 1e-5",
                         default=1e-5)
+    
+    # nli pretrain args
+    parser.add_argument("--nli_pretrain", help='', type=bool, default=False)
+    parser.add_argument("--pretrain", type=float, default=0.3)
 
     args = parser.parse_args()
     return args
 
 if __name__ == "__main__":
     args = get_args()
+
+    if args.nli_pretrain:
+        args.option = "finetune"
+        args.nli_pretrain_filepath = f'nli_pretrain-{args.epochs}-{args.lr}-multitask.pt'
+
     args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path
     seed_everything(args.seed)  # fix the seed for reproducibility
+    if args.nli_pretrain:
+        pretrain_nli(args)
     train_multitask(args)
     test_model(args)
