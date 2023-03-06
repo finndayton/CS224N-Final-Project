@@ -57,7 +57,7 @@ class MultitaskBERT(nn.Module):
 
         self.paraphrase_ln = nn.Linear(config.hidden_size * 2, 1)
 
-        self.similarity_ln = nn.Linear(config.hidden_size * 2, 5)
+        self.similarity_ln = nn.Linear(config.hidden_size * 2, 1)
 
         self.nli_ln = nn.Linear(config.hidden_size * 2, 3)
 
