@@ -260,7 +260,7 @@ def train_multitask(args):
         config = SimpleNamespace(**config)
 
         model = MultitaskBERT(config)
-        model = model.to(device)
+    model = model.to(device)
 
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
@@ -345,12 +345,12 @@ def train_multitask_gradient_surgery(args):
     sts_dataset_len = len(sts_train_data)
     para_dataset_len = len(para_train_data)
 
-    print(f"sst_dataloader_len: {sst_dataloader_len}\n")
-    print(f"sts_dataloader_len: {sts_dataloader_len}\n")
-    print(f"para_dataloader_len: {para_dataloader_len}\n")
-    print(f"sst_dataset_len: {sst_dataset_len}\n")
-    print(f"sts_dataset_len: {sts_dataset_len}\n")
-    print(f"para_dataset_len: {para_dataset_len}\n")
+    # print(f"sst_dataloader_len: {sst_dataloader_len}\n")
+    # print(f"sts_dataloader_len: {sts_dataloader_len}\n")
+    # print(f"para_dataloader_len: {para_dataloader_len}\n")
+    # print(f"sst_dataset_len: {sst_dataset_len}\n")
+    # print(f"sts_dataset_len: {sts_dataset_len}\n")
+    # print(f"para_dataset_len: {para_dataset_len}\n")
 
 
     if args.nli_pretrain:
@@ -369,7 +369,7 @@ def train_multitask_gradient_surgery(args):
         config = SimpleNamespace(**config)
 
         model = MultitaskBERT(config)
-        model = model.to(device)
+    model = model.to(device)
 
     lr = args.lr
     pc_adam = PCGrad(AdamW(model.parameters(), lr=lr))
@@ -386,8 +386,6 @@ def train_multitask_gradient_surgery(args):
             # Calculate loss for SST
             b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
                                        batch_sst['attention_mask'], batch_sst['labels'])
-            
-
 
         
             b_ids_sst = b_ids_sst.to(device)
@@ -408,8 +406,9 @@ def train_multitask_gradient_surgery(args):
             b_labels_sts = b_labels_sts.to(device)
 
             logits = model.predict_similarity(b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2)
-            print(f"\ndim logits: {logits}, dim labels: {b_labels_sts.view(-1)}\n")
-            loss_sts = F.cross_entropy(logits, b_labels_sts.view(-1), reduction='sum') / args.batch_size
+            loss_sts_fn = nn.MSELoss()
+            b_labels_sts = b_labels_sts.float()
+            loss_sts = loss_sts_fn(logits, b_labels_sts.view(-1)) / args.batch_size
 
 
         
@@ -423,12 +422,11 @@ def train_multitask_gradient_surgery(args):
             b_mask_para_2 = b_mask_para_2.to(device)
             b_labels_para = b_labels_para.to(device)
 
-            logits = model.predict_similarity(b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2)
-            loss_para = F.cross_entropy(logits, b_labels_para.view(-1), reduction='sum') / args.batch_size
+            logits = model.predict_paraphrase(b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2)
+            b_labels_para = b_labels_para.float()
+            loss_para_fn = nn.BCEWithLogitsLoss()
+            loss_para = loss_para_fn(logits, b_labels_para.view(8,1)) / args.batch_size
 
-
-        
-            
             pc_adam.pc_backward([loss_sst, loss_sts, loss_para])
             pc_adam.step()
 
