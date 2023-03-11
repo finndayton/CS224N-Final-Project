@@ -310,15 +310,15 @@ def train_multitask_gradient_surgery(args):
     sst_dev_data, num_sentiment_labels,para_dev_data, sts_dev_data, multinli_dev_data, num_multinli_labels = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split ='train')
 
     # sst
-    sst_train_data = SentenceClassificationDataset(sst_train_data, args)
+    sst_train_data = SentenceClassificationDataset(sst_train_data, args, max_len=len(para_train_data))
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
 
     # sts
-    sts_train_data = SentencePairDataset(sts_train_data, args)
+    sts_train_data = SentencePairDataset(sts_train_data, args, max_len=len(para_train_data))
     sts_dev_data = SentencePairDataset(sts_dev_data, args)
 
     # quora
-    para_train_data = SentencePairDataset(para_train_data, args)
+    para_train_data = SentencePairDataset(para_train_data, args, max_len=len(para_train_data))
     para_dev_data = SentencePairDataset(para_dev_data, args)
 
     #sst
@@ -380,19 +380,48 @@ def train_multitask_gradient_surgery(args):
         model.train()
         train_loss = 0
         num_batches = 0
-        for batch in tqdm(sst_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            b_ids, b_mask, b_labels = (batch['token_ids'],
-                                       batch['attention_mask'], batch['labels'])
+        for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
+            
+            # Calculate loss for SST
+            b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
+                                       batch_sst['attention_mask'], batch_sst['labels'])
 
-            b_ids = b_ids.to(device)
-            b_mask = b_mask.to(device)
-            b_labels = b_labels.to(device)
+            b_ids_sst = b_ids_sst.to(device)
+            b_mask_sst = b_mask_sst.to(device)
+            b_labels_sst = b_labels_sst.to(device)
 
             optimizer.zero_grad()
-            logits = model.predict_sentiment(b_ids, b_mask)
-            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            logits = model.predict_sentiment(b_ids_sst, b_mask_sst)
+            loss_sst = F.cross_entropy(logits, b_labels_sst.view(-1), reduction='sum') / args.batch_size
 
-            loss.backward()
+            # Calculate loss for STS
+            b_ids_sts, b_mask_sts, b_labels_sts = (batch_sts['token_ids'],
+                                       batch_sts['attention_mask'], batch_sts['labels'])
+
+            b_ids_sts = b_ids_sts.to(device)
+            b_mask_sts = b_mask_sts.to(device)
+            b_labels_sts = b_labels_sts.to(device)
+
+            optimizer.zero_grad()
+            logits = model.predict_sentiment(b_ids_sts, b_mask_sts)
+            loss_sts = F.cross_entropy(logits, b_labels_sts.view(-1), reduction='sum') / args.batch_size
+
+
+            # Calculate loss for PARA
+            b_ids_para, b_mask_para, b_labels_para = (batch_para['token_ids'],
+                                       batch_para['attention_mask'], batch_para['labels'])
+
+            b_ids_para = b_ids_para.to(device)
+            b_mask_para = b_mask_para.to(device)
+            b_labels_para = b_labels_para.to(device)
+
+            optimizer.zero_grad()
+            logits = model.predict_sentiment(b_ids_para, b_mask_para)
+            loss_para = F.cross_entropy(logits, b_labels_para.view(-1), reduction='sum') / args.batch_size
+
+
+
+            loss_sst.backward()
             optimizer.step()
 
             train_loss += loss.item()

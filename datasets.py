@@ -27,15 +27,20 @@ def preprocess_string(s):
 
 
 class SentenceClassificationDataset(Dataset):
-    def __init__(self, dataset, args):
+    def __init__(self, dataset, args, max_len=None):
         self.dataset = dataset
         self.p = args
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.max_len = max_len
 
     def __len__(self):
+        if self.max_len:
+            return self.max_len
         return len(self.dataset)
 
     def __getitem__(self, idx):
+        if self.max_len:
+            return self.dataset[idx % len(self.dataset)]
         return self.dataset[idx]
 
     def pad_data(self, data):
@@ -101,16 +106,21 @@ class SentenceClassificationTestDataset(Dataset):
 
 
 class SentencePairDataset(Dataset):
-    def __init__(self, dataset, args, isRegression =False):
+    def __init__(self, dataset, args, isRegression =False, max_len=None):
         self.dataset = dataset
         self.p = args
         self.isRegression = isRegression
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.max_len = max_len
 
     def __len__(self):
+        if self.max_len:
+            return self.max_len
         return len(self.dataset)
 
     def __getitem__(self, idx):
+        if self.max_len:
+            return self.dataset[idx % len(self.dataset)]
         return self.dataset[idx]
 
     def pad_data(self, data):
