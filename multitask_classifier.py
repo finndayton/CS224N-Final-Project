@@ -14,7 +14,7 @@ from pcgrad import PCGrad
 from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
-from evaluation import model_eval_sst, test_model_multitask
+from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
 
 
 TQDM_DISABLE=True
@@ -373,7 +373,9 @@ def train_multitask_gradient_surgery(args):
 
     lr = args.lr
     pc_adam = PCGrad(AdamW(model.parameters(), lr=lr))
-    best_dev_acc = 0
+    best_dev_sst_acc = 0
+    best_dev_para_acc = 0
+    best_dev_sts_corr = 0
 
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
@@ -409,8 +411,6 @@ def train_multitask_gradient_surgery(args):
             loss_sts_fn = nn.MSELoss()
             b_labels_sts = b_labels_sts.float()
             loss_sts = loss_sts_fn(logits, b_labels_sts.view(-1)) / args.batch_size
-
-
         
             # Calculate loss for PARA
             b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = (batch_para['token_ids_1'], batch_para['attention_mask_1'], 
@@ -440,18 +440,22 @@ def train_multitask_gradient_surgery(args):
         train_loss_sts = train_loss_sts / (num_batches)
         train_loss_para = train_loss_para / (num_batches)
 
-        train_acc, train_f1, *_ = model_eval_sst(sst_train_dataloader, model, device)
-        dev_acc, dev_f1, *_ = model_eval_sst(sst_dev_dataloader, model, device)
+        train_eval = model_eval_multitask(sst_train_dataloader, para_train_dataloader, sts_train_dataloader, model, device)
+        dev_eval = model_eval_multitask(sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader, model, device)
 
-        if dev_acc > best_dev_acc:
-            best_dev_acc = dev_acc
+        train_sst_acc, train_para_acc, train_sts_corr = train_eval[3], train_eval[0], train_eval[6]    
+        dev_sst_acc, dev_para_acc, dev_sts_corr = dev_eval[3], dev_eval[0], dev_eval[6]
+    
+        if dev_sst_acc >= best_dev_sst_acc and dev_para_acc >= best_dev_para_acc and dev_sts_corr >= best_dev_sts_corr:
+            best_dev_sst_acc = dev_sst_acc
+            best_dev_para_acc = dev_para_acc
+            best_dev_sts_corr = dev_sts_corr
             save_model(model, pc_adam._optim, args, config, args.filepath)
 
-        print(f"Epoch {epoch}: train loss SST :: {train_loss_sst :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
-        print(f"Epoch {epoch}: train loss STS :: {train_loss_sts :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
-        print(f"Epoch {epoch}: train loss PARA :: {train_loss_para :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
-
-
+        print(f"Epoch {epoch}: train loss SST :: {train_loss_sst :.3f}, train acc :: {train_sst_acc :.3f}, dev acc :: {dev_sst_acc :.3f}")
+        print(f"Epoch {epoch}: train loss PARA :: {train_loss_para :.3f}, train acc :: {train_para_acc :.3f}, dev acc :: {dev_para_acc :.3f}")
+        print(f"Epoch {epoch}: train loss STS :: {train_loss_sts :.3f}, train acc :: {train_sts_corr :.3f}, dev acc :: {dev_sts_corr :.3f}")
+        
 
 def test_model(args):
     with torch.no_grad():
