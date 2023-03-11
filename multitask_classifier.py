@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from bert import BertModel
 from optimizer import AdamW
 from tqdm import tqdm
+from pcgrad import PCGrad
 
 from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
@@ -372,16 +373,17 @@ def train_multitask_gradient_surgery(args):
         model = model.to(device)
 
     lr = args.lr
-    optimizer = AdamW(model.parameters(), lr=lr)
+    pc_adam = PCGrad(AdamW(model.parameters(), lr=lr))
     best_dev_acc = 0
 
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
-        train_loss = 0
+        train_loss_sst = 0
+        train_loss_sts = 0
+        train_loss_para = 0
         num_batches = 0
         for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            
             # Calculate loss for SST
             b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
                                        batch_sst['attention_mask'], batch_sst['labels'])
@@ -390,7 +392,6 @@ def train_multitask_gradient_surgery(args):
             b_mask_sst = b_mask_sst.to(device)
             b_labels_sst = b_labels_sst.to(device)
 
-            optimizer.zero_grad()
             logits = model.predict_sentiment(b_ids_sst, b_mask_sst)
             loss_sst = F.cross_entropy(logits, b_labels_sst.view(-1), reduction='sum') / args.batch_size
 
@@ -402,10 +403,8 @@ def train_multitask_gradient_surgery(args):
             b_mask_sts = b_mask_sts.to(device)
             b_labels_sts = b_labels_sts.to(device)
 
-            optimizer.zero_grad()
             logits = model.predict_sentiment(b_ids_sts, b_mask_sts)
             loss_sts = F.cross_entropy(logits, b_labels_sts.view(-1), reduction='sum') / args.batch_size
-
 
             # Calculate loss for PARA
             b_ids_para, b_mask_para, b_labels_para = (batch_para['token_ids'],
@@ -415,28 +414,32 @@ def train_multitask_gradient_surgery(args):
             b_mask_para = b_mask_para.to(device)
             b_labels_para = b_labels_para.to(device)
 
-            optimizer.zero_grad()
             logits = model.predict_sentiment(b_ids_para, b_mask_para)
             loss_para = F.cross_entropy(logits, b_labels_para.view(-1), reduction='sum') / args.batch_size
+            
+            pc_adam.pc_backward([loss_sst, loss_sts, loss_para])
+            pc_adam.step()
 
+            train_loss_sst += loss_sst.item()
+            train_loss_sts += loss_sts.item()
+            train_loss_para += loss_para.item()
 
-
-            loss_sst.backward()
-            optimizer.step()
-
-            train_loss += loss.item()
             num_batches += 1
 
-        train_loss = train_loss / (num_batches)
+        train_loss_sst = train_loss_sst / (num_batches)
+        train_loss_sts = train_loss_sts / (num_batches)
+        train_loss_para = train_loss_para / (num_batches)
 
         train_acc, train_f1, *_ = model_eval_sst(sst_train_dataloader, model, device)
         dev_acc, dev_f1, *_ = model_eval_sst(sst_dev_dataloader, model, device)
 
         if dev_acc > best_dev_acc:
             best_dev_acc = dev_acc
-            save_model(model, optimizer, args, config, args.filepath)
+            save_model(model, pc_adam._optim, args, config, args.filepath)
 
-        print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+        print(f"Epoch {epoch}: train loss SST :: {train_loss_sst :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+        print(f"Epoch {epoch}: train loss STS :: {train_loss_sts :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+        print(f"Epoch {epoch}: train loss PARA :: {train_loss_para :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
 
 
