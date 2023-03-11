@@ -387,7 +387,10 @@ def train_multitask_gradient_surgery(args):
             # Calculate loss for SST
             b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
                                        batch_sst['attention_mask'], batch_sst['labels'])
+            
 
+
+        
             b_ids_sst = b_ids_sst.to(device)
             b_mask_sst = b_mask_sst.to(device)
             b_labels_sst = b_labels_sst.to(device)
@@ -396,26 +399,36 @@ def train_multitask_gradient_surgery(args):
             loss_sst = F.cross_entropy(logits, b_labels_sst.view(-1), reduction='sum') / args.batch_size
 
             # Calculate loss for STS
-            b_ids_sts, b_mask_sts, b_labels_sts = (batch_sts['token_ids'],
-                                       batch_sts['attention_mask'], batch_sts['labels'])
+            b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = (batch_sts['token_ids_1'], batch_sts['attention_mask_1'], 
+                                       batch_sts['token_ids_2'], batch_sts['attention_mask_2'], batch_sts['labels'])
 
-            b_ids_sts = b_ids_sts.to(device)
-            b_mask_sts = b_mask_sts.to(device)
+            b_ids_sts_1 = b_ids_sts_1.to(device)
+            b_mask_sts_1 = b_mask_sts_1.to(device)
+            b_ids_sts_2 = b_ids_sts_2.to(device)
+            b_mask_sts_2 = b_mask_sts_2.to(device)
             b_labels_sts = b_labels_sts.to(device)
 
-            logits = model.predict_sentiment(b_ids_sts, b_mask_sts)
+            logits = model.predict_similarity(b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2)
+            print(f"\ndim logits: {logits}, dim labels: {b_labels_sts.view(-1)}\n")
             loss_sts = F.cross_entropy(logits, b_labels_sts.view(-1), reduction='sum') / args.batch_size
 
-            # Calculate loss for PARA
-            b_ids_para, b_mask_para, b_labels_para = (batch_para['token_ids'],
-                                       batch_para['attention_mask'], batch_para['labels'])
 
-            b_ids_para = b_ids_para.to(device)
-            b_mask_para = b_mask_para.to(device)
+        
+            # Calculate loss for PARA
+            b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = (batch_para['token_ids_1'], batch_para['attention_mask_1'], 
+                                       batch_para['token_ids_2'], batch_para['attention_mask_2'], batch_para['labels'])
+
+            b_ids_para_1 = b_ids_para_1.to(device)
+            b_mask_para_1 = b_mask_para_1.to(device)
+            b_ids_para_2 = b_ids_para_2.to(device)
+            b_mask_para_2 = b_mask_para_2.to(device)
             b_labels_para = b_labels_para.to(device)
 
-            logits = model.predict_sentiment(b_ids_para, b_mask_para)
+            logits = model.predict_similarity(b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2)
             loss_para = F.cross_entropy(logits, b_labels_para.view(-1), reduction='sum') / args.batch_size
+
+
+        
             
             pc_adam.pc_backward([loss_sst, loss_sts, loss_para])
             pc_adam.step()
