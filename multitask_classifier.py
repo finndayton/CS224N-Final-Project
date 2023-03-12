@@ -17,7 +17,7 @@ from datasets import SentenceClassificationDataset, SentencePairDataset, \
 from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
 
 
-TQDM_DISABLE=True
+TQDM_DISABLE=False
 
 # fix the random seed
 def seed_everything(seed=11711):
@@ -309,17 +309,27 @@ def train_multitask_gradient_surgery(args):
     sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train')
     sst_dev_data, num_sentiment_labels,para_dev_data, sts_dev_data, multinli_dev_data, num_multinli_labels = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split ='train')
 
+    sst_dataset_len = len(sst_train_data)
+    sts_dataset_len = len(sts_train_data)
+    para_dataset_len = len(para_train_data)
+
+    n = min(sst_dataset_len, sts_dataset_len, para_dataset_len)
+
+    print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
+    
     # sst
-    sst_train_data = SentenceClassificationDataset(sst_train_data, args, max_len=len(para_train_data))
+    sst_train_data = SentenceClassificationDataset(sst_train_data, args, max_len=n)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
 
     # sts
-    sts_train_data = SentencePairDataset(sts_train_data, args, max_len=len(para_train_data))
+    sts_train_data = SentencePairDataset(sts_train_data, args, max_len=n)
     sts_dev_data = SentencePairDataset(sts_dev_data, args)
 
     # quora
-    para_train_data = SentencePairDataset(para_train_data, args, max_len=len(para_train_data))
+    para_train_data = SentencePairDataset(para_train_data, args, max_len=n)
     para_dev_data = SentencePairDataset(para_dev_data, args)
+
+    print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
 
     #sst
     sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
@@ -341,9 +351,7 @@ def train_multitask_gradient_surgery(args):
     sts_dataloader_len = len(sts_train_dataloader)
     para_dataloader_len = len(para_train_dataloader)
 
-    sst_dataset_len = len(sst_train_data)
-    sts_dataset_len = len(sts_train_data)
-    para_dataset_len = len(para_train_data)
+    print(f"\n sst_train_dataloader: {sst_dataloader_len}, sts_train_dataloader: {sts_dataloader_len}, para_train_dataloader: {para_dataloader_len}\n")
 
     # print(f"sst_dataloader_len: {sst_dataloader_len}\n")
     # print(f"sts_dataloader_len: {sts_dataloader_len}\n")
@@ -352,7 +360,7 @@ def train_multitask_gradient_surgery(args):
     # print(f"sts_dataset_len: {sts_dataset_len}\n")
     # print(f"para_dataset_len: {para_dataset_len}\n")
 
-
+    
     if args.nli_pretrain:
         # Get model from pretrain
         saved = torch.load(args.nli_pretrain_filepath)
@@ -380,19 +388,18 @@ def train_multitask_gradient_surgery(args):
     # Run for the specified number of epochs
     for epoch in range(args.epochs):
         model.train()
-        train_loss_sst = 0
-        train_loss_sts = 0
-        train_loss_para = 0
+        train_loss_sst, train_loss_sts, train_loss_para = 0,0,0
         num_batches = 0
+
+        # pytorch might be smart enough to not need the added logic __getitem__ / __len__ in datasets.py
         for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
             # Calculate loss for SST
             b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
                                        batch_sst['attention_mask'], batch_sst['labels'])
 
-        
-            b_ids_sst = b_ids_sst.to(device)
-            b_mask_sst = b_mask_sst.to(device)
-            b_labels_sst = b_labels_sst.to(device)
+            b_ids_sst, b_mask_sst, b_labels_sst = b_ids_sst.to(device),  b_mask_sst.to(device), b_labels_sst.to(device)
+            # b_mask_sst = b_mask_sst.to(device)
+            # b_labels_sst = b_labels_sst.to(device)
 
             logits = model.predict_sentiment(b_ids_sst, b_mask_sst)
             loss_sst = F.cross_entropy(logits, b_labels_sst.view(-1), reduction='sum') / args.batch_size
@@ -400,32 +407,34 @@ def train_multitask_gradient_surgery(args):
             # Calculate loss for STS
             b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = (batch_sts['token_ids_1'], batch_sts['attention_mask_1'], 
                                        batch_sts['token_ids_2'], batch_sts['attention_mask_2'], batch_sts['labels'])
-
-            b_ids_sts_1 = b_ids_sts_1.to(device)
-            b_mask_sts_1 = b_mask_sts_1.to(device)
-            b_ids_sts_2 = b_ids_sts_2.to(device)
-            b_mask_sts_2 = b_mask_sts_2.to(device)
-            b_labels_sts = b_labels_sts.to(device)
-
+            
+            # Move to GPU
+            b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = b_ids_sts_1.to(device), b_mask_sts_1.to(device), b_ids_sts_2.to(device), b_mask_sts_2.to(device), b_labels_sts.to(device)
+            # b_mask_sts_1 = b_mask_sts_1.to(device)
+            # b_ids_sts_2 = b_ids_sts_2.to(device)
+            # b_mask_sts_2 = b_mask_sts_2.to(device)
+            # b_labels_sts = b_labels_sts.to(device)
             logits = model.predict_similarity(b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2)
-            loss_sts_fn = nn.MSELoss()
-            b_labels_sts = b_labels_sts.float()
-            loss_sts = loss_sts_fn(logits, b_labels_sts.view(-1)) / args.batch_size
+            # loss_sts_fn = nn.MSELoss()
+            # b_labels_sts = b_labels_sts.float()
+            loss_sts = nn.MSELoss()(logits, b_labels_sts.float().view(-1)) / args.batch_size
         
             # Calculate loss for PARA
             b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = (batch_para['token_ids_1'], batch_para['attention_mask_1'], 
                                        batch_para['token_ids_2'], batch_para['attention_mask_2'], batch_para['labels'])
 
-            b_ids_para_1 = b_ids_para_1.to(device)
-            b_mask_para_1 = b_mask_para_1.to(device)
-            b_ids_para_2 = b_ids_para_2.to(device)
-            b_mask_para_2 = b_mask_para_2.to(device)
-            b_labels_para = b_labels_para.to(device)
+            # Move to GPU
+            b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = b_ids_para_1.to(device), b_mask_para_1.to(device), b_ids_para_2.to(device), b_mask_para_2.to(device), b_labels_para.to(device)
+            # b_mask_para_1 = b_mask_para_1.to(device)
+            # b_ids_para_2 = b_ids_para_2.to(device)
+            # b_mask_para_2 = b_mask_para_2.to(device)
+            # b_labels_para = b_labels_para.to(device)
 
             logits = model.predict_paraphrase(b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2)
             b_labels_para = b_labels_para.float()
             loss_para_fn = nn.BCEWithLogitsLoss()
-            loss_para = loss_para_fn(logits, b_labels_para.view(8,1)) / args.batch_size
+            # print(f"\nlogits: {logits}, b_labels_para: {b_labels_para}\n")
+            loss_para = loss_para_fn(logits, b_labels_para[:len(logits)].view(len(logits),1)) / args.batch_size
 
             pc_adam.pc_backward([loss_sst, loss_sts, loss_para])
             pc_adam.step()
@@ -440,7 +449,9 @@ def train_multitask_gradient_surgery(args):
         train_loss_sts = train_loss_sts / (num_batches)
         train_loss_para = train_loss_para / (num_batches)
 
+        print(f"\ntrain eval:\n")
         train_eval = model_eval_multitask(sst_train_dataloader, para_train_dataloader, sts_train_dataloader, model, device)
+        print(f"\ntest eval:\n")
         dev_eval = model_eval_multitask(sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader, model, device)
 
         train_sst_acc, train_para_acc, train_sts_corr = train_eval[3], train_eval[0], train_eval[6]    
