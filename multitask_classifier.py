@@ -313,7 +313,7 @@ def train_multitask_gradient_surgery(args):
     sts_dataset_len = len(sts_train_data)
     para_dataset_len = len(para_train_data)
 
-    n = min(sst_dataset_len, sts_dataset_len, para_dataset_len)
+    n = max(sst_dataset_len, sts_dataset_len, para_dataset_len)
 
     print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
     
@@ -461,12 +461,151 @@ def train_multitask_gradient_surgery(args):
             best_dev_sst_acc = dev_sst_acc
             best_dev_para_acc = dev_para_acc
             best_dev_sts_corr = dev_sts_corr
-            save_model(model, pc_adam._optim, args, config, args.filepath)
+            save_model(model, pc_adam._optim, args, config, args.gradient_surgery_filepath)
 
         print(f"Epoch {epoch}: train loss SST :: {train_loss_sst :.3f}, train acc :: {train_sst_acc :.3f}, dev acc :: {dev_sst_acc :.3f}")
         print(f"Epoch {epoch}: train loss PARA :: {train_loss_para :.3f}, train acc :: {train_para_acc :.3f}, dev acc :: {dev_para_acc :.3f}")
         print(f"Epoch {epoch}: train loss STS :: {train_loss_sts :.3f}, train acc :: {train_sts_corr :.3f}, dev acc :: {dev_sts_corr :.3f}")
         
+
+def train_final_layers(args):
+    # load the gradient surgery model
+
+    # finetune each of the three layers in model on their three respective datasets. 
+    # paraphrase_ln, similarity_ln, nli_ln
+    device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+
+    # Load data
+    # Create the data and its corresponding datasets and dataloader
+    sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train')
+    sst_dev_data, num_sentiment_labels,para_dev_data, sts_dev_data, multinli_dev_data, num_multinli_labels = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split ='train')
+
+    sst_dataset_len = len(sst_train_data)
+    sts_dataset_len = len(sts_train_data)
+    para_dataset_len = len(para_train_data)
+
+    n = max(sst_dataset_len, sts_dataset_len, para_dataset_len)
+
+    print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
+    
+    # sst
+    sst_train_data = SentenceClassificationDataset(sst_train_data, args)
+    sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
+
+    # sts
+    sts_train_data = SentencePairDataset(sts_train_data, args)
+    sts_dev_data = SentencePairDataset(sts_dev_data, args)
+
+    # quora
+    para_train_data = SentencePairDataset(para_train_data, args)
+    para_dev_data = SentencePairDataset(para_dev_data, args)
+
+    print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
+
+    #sst
+    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=sst_train_data.collate_fn)
+    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=args.batch_size,
+                                    collate_fn=sst_dev_data.collate_fn)
+    #sts
+    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=sts_train_data.collate_fn)
+    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=args.batch_size,
+                                    collate_fn=sts_dev_data.collate_fn)
+    #quora 
+    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=args.batch_size,
+                                      collate_fn=para_train_data.collate_fn)
+    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
+                                    collate_fn=para_dev_data.collate_fn)
+
+    # sst_dataloader_len = len(sst_train_dataloader)
+    # sts_dataloader_len = len(sts_train_dataloader)
+    # para_dataloader_len = len(para_train_dataloader)
+
+    print(f"\n sst_train_dataloader: {sst_dataloader_len}, sts_train_dataloader: {sts_dataloader_len}, para_train_dataloader: {para_dataloader_len}\n")
+
+    # print(f"sst_dataloader_len: {sst_dataloader_len}\n")
+    # print(f"sts_dataloader_len: {sts_dataloader_len}\n")
+    # print(f"para_dataloader_len: {para_dataloader_len}\n")
+    # print(f"sst_dataset_len: {sst_dataset_len}\n")
+    # print(f"sts_dataset_len: {sts_dataset_len}\n")
+    # print(f"para_dataset_len: {para_dataset_len}\n")
+
+    
+    if args.gradient_surgery:
+        saved = torch.load(args.gradient_surgery_filepath)
+        config = saved['model_config']
+        model = MultitaskBERT(config)
+    elif args.nli_pretrain:
+        # Get model from pretrain
+        saved = torch.load(args.nli_pretrain_filepath)
+        config = saved['model_config']
+        model = MultitaskBERT(config)
+    else:
+        # Init model
+        config = {'hidden_dropout_prob': args.hidden_dropout_prob,
+                'num_labels': num_sentiment_labels,
+                'hidden_size': 768,
+                'data_dir': '.',
+                'option': args.option}
+                
+        config = SimpleNamespace(**config)
+        model = MultitaskBERT(config)
+
+    model = model.to(device)
+
+   model = model.to(device)
+
+    lr = args.lr
+    optimizer = AdamW(model.parameters(), lr=lr)
+    best_dev_acc = 0
+
+    def finetune_layer(name, dataloader):
+        # Run for the specified number of epochs
+        for epoch in range(args.epochs):
+            model.train()
+            train_loss = 0
+            num_batches = 0
+            for batch in tqdm(dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
+
+                # SST 
+                if (name == "sst"):
+                    b_ids, b_mask, b_labels = (batch['token_ids'],
+                                            batch['attention_mask'], batch['labels'])
+                    b_ids = b_ids.to(device)
+                    b_mask = b_mask.to(device)
+                    b_labels = b_labels.to(device)
+                else:
+                    b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = ...
+
+
+                optimizer.zero_grad()
+                logits = model.predict_sentiment(b_ids, b_mask)
+                loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+
+                loss.backward()
+                optimizer.step()
+
+                train_loss += loss.item()
+                num_batches += 1
+
+            train_loss = train_loss / (num_batches)
+
+            train_acc, train_f1, *_ = model_eval_sst(sst_train_dataloader, model, device)
+            dev_acc, dev_f1, *_ = model_eval_sst(sst_dev_dataloader, model, device)
+
+            if dev_acc > best_dev_acc:
+                best_dev_acc = dev_acc
+                save_model(model, optimizer, args, config, args.filepath)
+
+            print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+
+
+    finetune_layer(name="sst")
+    finetune_layer(name="quora")
+    finetune_layer(name="sts")
+
+
 
 def test_model(args):
     with torch.no_grad():
@@ -530,15 +669,19 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
+    args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path 
+    seed_everything(args.seed)  # fix the seed for reproducibility
 
     if args.nli_pretrain:
         args.option = "finetune"
         args.nli_pretrain_filepath = f'nli_pretrain-{args.epochs}-{args.lr}-multitask.pt'
-
-    args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path
-    seed_everything(args.seed)  # fix the seed for reproducibility
-    if args.nli_pretrain:
         pretrain_nli(args)
-    # train_multitask(args)
-    train_multitask_gradient_surgery(args)
+
+    if args.gradient_surgery:
+        args.option = "finetune"
+        args.gradient_surgery_filepath = f'gradient_surgery-{args.epochs}-{args.lr}-multitask.pt'
+        train_multitask_gradient_surgery(args)
+
+    args.option = 'pretrain'
+    train_final_layers(args)
     test_model(args)
