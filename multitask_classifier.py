@@ -14,7 +14,7 @@ from pcgrad import PCGrad
 from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
-from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask
+from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask, sentiment_eval, paraphrase_eval, similarity_eval
 
 
 TQDM_DISABLE=False
@@ -353,13 +353,6 @@ def train_multitask_gradient_surgery(args):
 
     print(f"\n sst_train_dataloader: {sst_dataloader_len}, sts_train_dataloader: {sts_dataloader_len}, para_train_dataloader: {para_dataloader_len}\n")
 
-    # print(f"sst_dataloader_len: {sst_dataloader_len}\n")
-    # print(f"sts_dataloader_len: {sts_dataloader_len}\n")
-    # print(f"para_dataloader_len: {para_dataloader_len}\n")
-    # print(f"sst_dataset_len: {sst_dataset_len}\n")
-    # print(f"sts_dataset_len: {sts_dataset_len}\n")
-    # print(f"para_dataset_len: {para_dataset_len}\n")
-
     
     if args.nli_pretrain:
         # Get model from pretrain
@@ -410,13 +403,7 @@ def train_multitask_gradient_surgery(args):
             
             # Move to GPU
             b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = b_ids_sts_1.to(device), b_mask_sts_1.to(device), b_ids_sts_2.to(device), b_mask_sts_2.to(device), b_labels_sts.to(device)
-            # b_mask_sts_1 = b_mask_sts_1.to(device)
-            # b_ids_sts_2 = b_ids_sts_2.to(device)
-            # b_mask_sts_2 = b_mask_sts_2.to(device)
-            # b_labels_sts = b_labels_sts.to(device)
             logits = model.predict_similarity(b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2)
-            # loss_sts_fn = nn.MSELoss()
-            # b_labels_sts = b_labels_sts.float()
             loss_sts = nn.MSELoss()(logits, b_labels_sts.float().view(-1)) / args.batch_size
         
             # Calculate loss for PARA
@@ -425,15 +412,10 @@ def train_multitask_gradient_surgery(args):
 
             # Move to GPU
             b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = b_ids_para_1.to(device), b_mask_para_1.to(device), b_ids_para_2.to(device), b_mask_para_2.to(device), b_labels_para.to(device)
-            # b_mask_para_1 = b_mask_para_1.to(device)
-            # b_ids_para_2 = b_ids_para_2.to(device)
-            # b_mask_para_2 = b_mask_para_2.to(device)
-            # b_labels_para = b_labels_para.to(device)
 
             logits = model.predict_paraphrase(b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2)
             b_labels_para = b_labels_para.float()
             loss_para_fn = nn.BCEWithLogitsLoss()
-            # print(f"\nlogits: {logits}, b_labels_para: {b_labels_para}\n")
             loss_para = loss_para_fn(logits, b_labels_para[:len(logits)].view(len(logits),1)) / args.batch_size
 
             pc_adam.pc_backward([loss_sst, loss_sts, loss_para])
@@ -469,22 +451,15 @@ def train_multitask_gradient_surgery(args):
         
 
 def train_final_layers(args):
-    # load the gradient surgery model
-
-    # finetune each of the three layers in model on their three respective datasets. 
-    # paraphrase_ln, similarity_ln, nli_ln
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
 
     # Load data
-    # Create the data and its corresponding datasets and dataloader
     sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train')
     sst_dev_data, num_sentiment_labels,para_dev_data, sts_dev_data, multinli_dev_data, num_multinli_labels = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split ='train')
 
     sst_dataset_len = len(sst_train_data)
     sts_dataset_len = len(sts_train_data)
     para_dataset_len = len(para_train_data)
-
-    n = max(sst_dataset_len, sts_dataset_len, para_dataset_len)
 
     print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
     
@@ -518,19 +493,6 @@ def train_final_layers(args):
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
                                     collate_fn=para_dev_data.collate_fn)
 
-    # sst_dataloader_len = len(sst_train_dataloader)
-    # sts_dataloader_len = len(sts_train_dataloader)
-    # para_dataloader_len = len(para_train_dataloader)
-
-    print(f"\n sst_train_dataloader: {sst_dataloader_len}, sts_train_dataloader: {sts_dataloader_len}, para_train_dataloader: {para_dataloader_len}\n")
-
-    # print(f"sst_dataloader_len: {sst_dataloader_len}\n")
-    # print(f"sts_dataloader_len: {sts_dataloader_len}\n")
-    # print(f"para_dataloader_len: {para_dataloader_len}\n")
-    # print(f"sst_dataset_len: {sst_dataset_len}\n")
-    # print(f"sts_dataset_len: {sts_dataset_len}\n")
-    # print(f"para_dataset_len: {para_dataset_len}\n")
-
     
     if args.gradient_surgery:
         saved = torch.load(args.gradient_surgery_filepath)
@@ -554,34 +516,38 @@ def train_final_layers(args):
 
     model = model.to(device)
 
-   model = model.to(device)
-
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
     best_dev_acc = 0
 
-    def finetune_layer(name, dataloader):
+    def finetune_layer(name, train_dataloader, dev_dataloader, eval_fn):
         # Run for the specified number of epochs
         for epoch in range(args.epochs):
             model.train()
             train_loss = 0
             num_batches = 0
-            for batch in tqdm(dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
-
+            for batch in tqdm(train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
+                optimizer.zero_grad()
                 # SST 
                 if (name == "sst"):
                     b_ids, b_mask, b_labels = (batch['token_ids'],
                                             batch['attention_mask'], batch['labels'])
-                    b_ids = b_ids.to(device)
-                    b_mask = b_mask.to(device)
-                    b_labels = b_labels.to(device)
+                    b_ids, b_mask, b_labels = b_ids.to(device), b_mask.to(device), b_labels.to(device)
+                    logits = model.predict_sentiment(b_ids, b_mask)
+                    loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+
+                # Quora and STS
                 else:
-                    b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = ...
-
-
-                optimizer.zero_grad()
-                logits = model.predict_sentiment(b_ids, b_mask)
-                loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+                    b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'], batch['attention_mask_1'], 
+                                       batch['token_ids_2'], batch['attention_mask_2'], batch['labels'])
+                    b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = b_ids_1.to(device), b_mask_1.to(device), b_ids_2.to(device), b_mask_2.to(device), b_labels.to(device)
+                    if name == "sts":
+                        logits = model.predict_similarity(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
+                        loss = nn.MSELoss()(logits, b_labels.float().view(-1)) / args.batch_size
+                    elif name == "quora":
+                        logits = model.predict_paraphrase(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
+                        b_labels = b_labels.float()
+                        loss = nn.BCEWithLogitsLoss()(logits, b_labels.view(-1)) / args.batch_size
 
                 loss.backward()
                 optimizer.step()
@@ -591,21 +557,21 @@ def train_final_layers(args):
 
             train_loss = train_loss / (num_batches)
 
-            train_acc, train_f1, *_ = model_eval_sst(sst_train_dataloader, model, device)
-            dev_acc, dev_f1, *_ = model_eval_sst(sst_dev_dataloader, model, device)
+            train_acc, train_f1, *_ = eval_fn(train_dataloader, model, device)
+            dev_acc, dev_f1, *_ = eval_fn(dev_dataloader, model, device)
 
             if dev_acc > best_dev_acc:
                 best_dev_acc = dev_acc
                 save_model(model, optimizer, args, config, args.filepath)
 
-            print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
+            print(f"Epoch {epoch} for {name}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
-
-    finetune_layer(name="sst")
-    finetune_layer(name="quora")
-    finetune_layer(name="sts")
-
-
+    print("Finetuning SST Layer")
+    finetune_layer("sst", sst_train_dataloader, sst_dev_dataloader, sentiment_eval)
+    print("Finetuning QUORA Layer")
+    finetune_layer("quora", para_train_dataloader, para_dev_dataloader, paraphrase_eval )
+    print("Finetuning STS Layer")
+    finetune_layer("sts", sts_train_dataloader, sts_dev_dataloader, similarity_eval)
 
 def test_model(args):
     with torch.no_grad():
@@ -662,6 +628,10 @@ def get_args():
     
     # nli pretrain args
     parser.add_argument("--nli_pretrain", help='', type=bool, default=False)
+    # gradient surgery flag
+    parser.add_argument("--gradient_surgery", help='', type=bool, default=False)
+
+
     parser.add_argument("--pretrain", type=float, default=0.3)
 
     args = parser.parse_args()
