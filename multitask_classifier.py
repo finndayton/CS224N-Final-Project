@@ -438,7 +438,7 @@ def train_multitask_gradient_surgery(args):
 
         train_sst_acc, train_para_acc, train_sts_corr = train_eval[3], train_eval[0], train_eval[6]    
         dev_sst_acc, dev_para_acc, dev_sts_corr = dev_eval[3], dev_eval[0], dev_eval[6]
-    
+
         if dev_sst_acc >= best_dev_sst_acc and dev_para_acc >= best_dev_para_acc and dev_sts_corr >= best_dev_sts_corr:
             best_dev_sst_acc = dev_sst_acc
             best_dev_para_acc = dev_para_acc
@@ -518,10 +518,11 @@ def train_final_layers(args):
 
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
-    best_dev_acc = 0
+    # best_dev_acc = 0
 
     def finetune_layer(name, train_dataloader, dev_dataloader, eval_fn):
         # Run for the specified number of epochs
+        best_dev_acc = 0
         for epoch in range(args.epochs):
             model.train()
             train_loss = 0
@@ -547,8 +548,8 @@ def train_final_layers(args):
                     elif name == "quora":
                         logits = model.predict_paraphrase(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
                         b_labels = b_labels.float()
-                        loss = nn.BCEWithLogitsLoss()(logits, b_labels.view(-1)) / args.batch_size
-
+                        # loss = nn.BCEWithLogitsLoss()(logits, b_labels.view(-1)) / args.batch_size
+                        loss = nn.BCEWithLogitsLoss()(logits, b_labels[:len(logits)].view(len(logits),1)) / args.batch_size
                 loss.backward()
                 optimizer.step()
 
@@ -654,4 +655,6 @@ if __name__ == "__main__":
 
     args.option = 'pretrain'
     train_final_layers(args)
+
+    print(f"\ntesting model commencing\n")
     test_model(args)
