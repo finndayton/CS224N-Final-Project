@@ -318,38 +318,43 @@ def train_multitask_gradient_surgery(args):
     print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
     
     # sst
-    sst_train_data = SentenceClassificationDataset(sst_train_data, args, max_len=n)
+    sst_train_data = SentenceClassificationDataset(sst_train_data, args)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
 
     # sts
-    sts_train_data = SentencePairDataset(sts_train_data, args, max_len=n)
+    sts_train_data = SentencePairDataset(sts_train_data, args)
     sts_dev_data = SentencePairDataset(sts_dev_data, args)
 
     # quora
-    para_train_data = SentencePairDataset(para_train_data, args, max_len=n)
+    para_train_data = SentencePairDataset(para_train_data, args)
     para_dev_data = SentencePairDataset(para_dev_data, args)
+
+    print("Para example ", para_train_data[0])
+    print("STS example: ", sts_train_data[0])
 
     print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
 
     #sst
-    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
+    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=8,
                                       collate_fn=sst_train_data.collate_fn)
-    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=args.batch_size,
+    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=8,
                                     collate_fn=sst_dev_data.collate_fn)
     #sts
-    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=args.batch_size,
+    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=6,
                                       collate_fn=sts_train_data.collate_fn)
-    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=args.batch_size,
+    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=6,
                                     collate_fn=sts_dev_data.collate_fn)
     #quora 
-    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=args.batch_size,
+    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=132,
                                       collate_fn=para_train_data.collate_fn)
-    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=args.batch_size,
+    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=132,
                                     collate_fn=para_dev_data.collate_fn)
 
     sst_dataloader_len = len(sst_train_dataloader)
     sts_dataloader_len = len(sts_train_dataloader)
     para_dataloader_len = len(para_train_dataloader)
+
+    min_dataloader_len = min(sst_dataloader_len, sts_dataloader_len, para_dataloader_len)
 
     print(f"\n sst_train_dataloader: {sst_dataloader_len}, sts_train_dataloader: {sts_dataloader_len}, para_train_dataloader: {para_dataloader_len}\n")
 
@@ -385,7 +390,15 @@ def train_multitask_gradient_surgery(args):
         num_batches = 0
 
         # pytorch might be smart enough to not need the added logic __getitem__ / __len__ in datasets.py
-        for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
+        sst_train_dataloader_iter = iter(sst_train_dataloader)
+        sts_train_dataloader_iter = iter(sts_train_dataloader)
+        para_train_dataloader_iter = iter(para_train_dataloader)
+        for i in tqdm(range(min_dataloader_len), desc=f'train-{epoch}', disable=TQDM_DISABLE):
+            batch_sst = next(sst_train_dataloader_iter)
+            batch_sts = next(sts_train_dataloader_iter)
+            batch_para = next(para_train_dataloader_iter)
+
+        # for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
             # Calculate loss for SST
             b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
                                        batch_sst['attention_mask'], batch_sst['labels'])
@@ -418,7 +431,7 @@ def train_multitask_gradient_surgery(args):
             loss_para_fn = nn.BCEWithLogitsLoss()
             loss_para = loss_para_fn(logits, b_labels_para[:len(logits)].view(len(logits),1)) / args.batch_size
 
-            pc_adam.pc_backward([loss_sst, loss_sts, loss_para])
+            pc_adam.pc_backward([loss_sst/(8/6), loss_sts/1, loss_para/22])
             pc_adam.step()
 
             train_loss_sst += loss_sst.item()
