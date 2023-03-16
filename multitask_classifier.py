@@ -158,6 +158,8 @@ def save_model(model, optimizer, args, config, filepath):
 def pretrain_nli(args):
     save_path = args.nli_filepath
 
+    batch_size_nli = 16
+
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
     # Load data
     # Create the data and its corresponding datasets and dataloader
@@ -167,9 +169,9 @@ def pretrain_nli(args):
     multinli_train_data = SentencePairDataset(multinli_train_data, args)
     multinli_dev_data = SentencePairDataset(multinli_dev_data, args)
 
-    multinli_train_dataloader = DataLoader(multinli_train_data, shuffle=True, batch_size=args.batch_size,
+    multinli_train_dataloader = DataLoader(multinli_train_data, shuffle=True, batch_size=batch_size_nli,
                                       collate_fn=multinli_train_data.collate_fn)
-    multinli_dev_dataloader = DataLoader(multinli_dev_data, shuffle=False, batch_size=args.batch_size,
+    multinli_dev_dataloader = DataLoader(multinli_dev_data, shuffle=False, batch_size=batch_size_nli,
                                     collate_fn=multinli_dev_data.collate_fn)
 
 
@@ -207,7 +209,7 @@ def pretrain_nli(args):
             optimizer.zero_grad()
             logits = model.predict_nli(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
 
-            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / args.batch_size
+            loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / batch_size_nli
 
             loss.backward()
             optimizer.step()
@@ -306,6 +308,10 @@ def train_multitask(args):
 def train_multitask_gradient_surgery(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
 
+    batch_size_sst = 1
+    batch_size_para = 24
+    batch_size_sts = 1
+
     # Load data
     # Create the data and its corresponding datasets and dataloader
     sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train')
@@ -337,19 +343,19 @@ def train_multitask_gradient_surgery(args):
     print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
 
     #sst
-    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=1,
+    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=batch_size_sst,
                                       collate_fn=sst_train_data.collate_fn)
-    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=1,
+    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=batch_size_sst,
                                     collate_fn=sst_dev_data.collate_fn)
     #sts
-    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=1,
+    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=batch_size_sts,
                                       collate_fn=sts_train_data.collate_fn)
-    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=1,
+    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=batch_size_sts,
                                     collate_fn=sts_dev_data.collate_fn)
     #quora 
-    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=24,
+    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=batch_size_para,
                                       collate_fn=para_train_data.collate_fn)
-    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=24,
+    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=batch_size_para,
                                     collate_fn=para_dev_data.collate_fn)
 
     sst_dataloader_len = len(sst_train_dataloader)
@@ -423,7 +429,7 @@ def train_multitask_gradient_surgery(args):
             # b_labels_sst = b_labels_sst.to(device)
 
             logits = model.predict_sentiment(b_ids_sst, b_mask_sst)
-            loss_sst = F.cross_entropy(logits, b_labels_sst.view(-1), reduction='sum') / args.batch_size
+            loss_sst = F.cross_entropy(logits, b_labels_sst.view(-1), reduction='sum') / batch_size_sst
 
             # Calculate loss for STS
             b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = (batch_sts['token_ids_1'], batch_sts['attention_mask_1'], 
@@ -432,7 +438,7 @@ def train_multitask_gradient_surgery(args):
             # Move to GPU
             b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = b_ids_sts_1.to(device), b_mask_sts_1.to(device), b_ids_sts_2.to(device), b_mask_sts_2.to(device), b_labels_sts.to(device)
             logits = model.predict_similarity(b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2)
-            loss_sts = nn.MSELoss()(logits, b_labels_sts.float().view(-1)) / args.batch_size
+            loss_sts = nn.MSELoss()(logits, b_labels_sts.float().view(-1)) / batch_size_sts
         
             # Calculate loss for PARA
             b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = (batch_para['token_ids_1'], batch_para['attention_mask_1'], 
@@ -444,9 +450,9 @@ def train_multitask_gradient_surgery(args):
             logits = model.predict_paraphrase(b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2)
             b_labels_para = b_labels_para.float()
             loss_para_fn = nn.BCEWithLogitsLoss()
-            loss_para = loss_para_fn(logits, b_labels_para[:len(logits)].view(len(logits),1)) / args.batch_size
+            loss_para = loss_para_fn(logits, b_labels_para[:len(logits)].view(len(logits),1)) / batch_size_para
 
-            pc_adam.pc_backward([loss_sst, loss_sts, loss_para/(24)])
+            pc_adam.pc_backward([loss_sst, loss_sts, loss_para/batch_size_para])
             pc_adam.step()
 
             train_loss_sst += loss_sst.item()
