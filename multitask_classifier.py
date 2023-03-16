@@ -14,7 +14,7 @@ from pcgrad import PCGrad
 from datasets import SentenceClassificationDataset, SentencePairDataset, \
     load_multitask_data, load_multitask_test_data
 
-from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask, sentiment_eval, paraphrase_eval, similarity_eval
+from evaluation import model_eval_sst, test_model_multitask, model_eval_multitask, sentiment_eval, paraphrase_eval, similarity_eval, nli_eval
 
 
 TQDM_DISABLE=False
@@ -161,8 +161,8 @@ def pretrain_nli(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
     # Load data
     # Create the data and its corresponding datasets and dataloader
-    sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train')
-    sst_dev_data, num_sentiment_labels,para_dev_data, sts_dev_data, multinli_dev_data, num_multinli_labels = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split ='train')
+    sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train', nli_limit=args.nli_limit)
+    sst_dev_data, num_sentiment_labels,para_dev_data, sts_dev_data, multinli_dev_data, num_multinli_labels = load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split ='train', nli_limit=args.nli_limit)
 
     multinli_train_data = SentencePairDataset(multinli_train_data, args)
     multinli_dev_data = SentencePairDataset(multinli_dev_data, args)
@@ -217,8 +217,8 @@ def pretrain_nli(args):
 
         train_loss = train_loss / (num_batches)
 
-        train_acc, train_f1, *_ = model_eval_sst(multinli_train_dataloader, model, device)
-        dev_acc, dev_f1, *_ = model_eval_sst(multinli_dev_dataloader, model, device)
+        train_acc, train_f1, *_ = nli_eval(multinli_train_dataloader, model, device)
+        dev_acc, dev_f1, *_ = nli_eval(multinli_dev_dataloader, model, device)
 
         if dev_acc > best_dev_acc:
             best_dev_acc = dev_acc
@@ -712,6 +712,9 @@ def get_args():
     parser.add_argument("--gs_wrap", help='', type=str, default=None)
     parser.add_argument("--gs_batch_diff", help='', type=str, default=None)
     parser.add_argument("--final_layer", help='', type=str, default=None)
+
+    # In case we want to train nli on less examples
+    parser.add_argument("--nli_limit", help='', type=int, default=None)
 
 
     args = parser.parse_args()

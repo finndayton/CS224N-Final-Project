@@ -265,9 +265,10 @@ def get_multinli_int_label(label):
     else:
         return None
 
-def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filename, multinli_filename, split='train'):
+def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filename, multinli_filename, split='train', nli_limit=None):
     multinli_data = []
     multinli_labels = defaultdict(int)
+    i = 0
     with open(multinli_filename, 'r') as fp:
         for line in fp:
             data = json.loads(line)
@@ -279,6 +280,9 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
                                 preprocess_string(data['sentence2']),
                                 label,
                                 sent_id))
+            i += 1
+            if nli_limit and i == nli_limit:
+                break
     print(f"Loaded {len(multinli_data)} {split} examples from {multinli_filename}")
     print("Num 'neutral' examples: ", multinli_labels[0])
     print("Num 'entailment' examples: ", multinli_labels[1])

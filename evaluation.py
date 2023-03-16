@@ -145,6 +145,37 @@ def similarity_eval(sts_dataloader, model, device):
         sts_corr = pearson_mat[1][0]
         return sts_corr, sts_y_pred, sts_sent_ids
 
+def nli_eval(nli_dataloader, model, device):
+    model.eval()  # switch to eval model, will turn off randomness like dropout
+    with torch.no_grad():
+        nli_y_true = []
+        nli_y_pred = []
+        nli_sent_ids = []
+
+        # Evaluate nli detection.
+        for step, batch in enumerate(tqdm(nli_dataloader, desc=f'eval', disable=TQDM_DISABLE)):
+            (b_ids1, b_mask1,
+             b_ids2, b_mask2,
+             b_labels, b_sent_ids) = (batch['token_ids_1'], batch['attention_mask_1'],
+                          batch['token_ids_2'], batch['attention_mask_2'],
+                          batch['labels'], batch['sent_ids'])
+
+            b_ids1 = b_ids1.to(device)
+            b_mask1 = b_mask1.to(device)
+            b_ids2 = b_ids2.to(device)
+            b_mask2 = b_mask2.to(device)
+
+            logits = model.predict_nli(b_ids1, b_mask1, b_ids2, b_mask2)
+            y_hat = logits.argmax(dim=-1).flatten().cpu().numpy()
+            b_labels = b_labels.flatten().cpu().numpy()
+
+            nli_y_pred.extend(y_hat)
+            nli_y_true.extend(b_labels)
+            nli_sent_ids.extend(b_sent_ids)
+
+        nli_accuracy = np.mean(np.array(nli_y_pred) == np.array(nli_y_true))
+        return nli_accuracy, nli_y_pred, nli_sent_ids
+
 
 # Perform model evaluation in terms by averaging accuracies across tasks.
 def model_eval_multitask(sentiment_dataloader,
@@ -154,7 +185,7 @@ def model_eval_multitask(sentiment_dataloader,
         paraphrase_accuracy, para_y_pred, para_sent_ids = paraphrase_eval(paraphrase_dataloader, model, device)
         sentiment_accuracy,sst_y_pred, sst_sent_ids = sentiment_eval(sentiment_dataloader, model, device)
         sts_corr, sts_y_pred, sts_sent_ids = similarity_eval(sts_dataloader, model, device)
-        
+
         print(f'Paraphrase detection accuracy: {paraphrase_accuracy:.3f}')
         print(f'Sentiment classification accuracy: {sentiment_accuracy:.3f}')
         print(f'Semantic Textual Similarity correlation: {sts_corr:.3f}')
