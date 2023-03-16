@@ -335,19 +335,19 @@ def train_multitask_gradient_surgery(args):
     print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
 
     #sst
-    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=2,
+    sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=1,
                                       collate_fn=sst_train_data.collate_fn)
-    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=2,
+    sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=1,
                                     collate_fn=sst_dev_data.collate_fn)
     #sts
-    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=2,
+    sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=1,
                                       collate_fn=sts_train_data.collate_fn)
-    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=2,
+    sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=1,
                                     collate_fn=sts_dev_data.collate_fn)
     #quora 
-    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=32,
+    para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=24,
                                       collate_fn=para_train_data.collate_fn)
-    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=32,
+    para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=24,
                                     collate_fn=para_dev_data.collate_fn)
 
     sst_dataloader_len = len(sst_train_dataloader)
@@ -364,6 +364,7 @@ def train_multitask_gradient_surgery(args):
         saved = torch.load(args.nli_pretrain_filepath)
         config = saved['model_config']
         model = MultitaskBERT(config)
+        model.load_state_dict(saved['model'])
     else:
         # Init model
         config = {'hidden_dropout_prob': args.hidden_dropout_prob,
@@ -431,7 +432,7 @@ def train_multitask_gradient_surgery(args):
             loss_para_fn = nn.BCEWithLogitsLoss()
             loss_para = loss_para_fn(logits, b_labels_para[:len(logits)].view(len(logits),1)) / args.batch_size
 
-            pc_adam.pc_backward([loss_sst, loss_sts, loss_para/(16)])
+            pc_adam.pc_backward([loss_sst, loss_sts, loss_para/(24)])
             pc_adam.step()
 
             train_loss_sst += loss_sst.item()
@@ -511,11 +512,13 @@ def train_final_layers(args):
         saved = torch.load(args.gradient_surgery_filepath)
         config = saved['model_config']
         model = MultitaskBERT(config)
+        model.load_state_dict(saved['model'])
     elif args.nli_pretrain:
         # Get model from pretrain
         saved = torch.load(args.nli_pretrain_filepath)
         config = saved['model_config']
         model = MultitaskBERT(config)
+        model.load_state_dict(saved['model'])
     else:
         # Init model
         config = {'hidden_dropout_prob': args.hidden_dropout_prob,
