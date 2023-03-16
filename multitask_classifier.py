@@ -593,7 +593,10 @@ def train_final_layers(args):
 def test_model(args):
     with torch.no_grad():
         device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-        saved = torch.load(args.filepath)
+        if args.test_model:
+            saved = torch.load(args.test_model)
+        else:
+            saved = torch.load(args.filepath)
         config = saved['model_config']
 
         model = MultitaskBERT(config)
@@ -648,6 +651,8 @@ def get_args():
     # gradient surgery flag
     parser.add_argument("--gradient_surgery", help='', type=bool, default=False)
 
+    parser.add_argument("--test_model", help='', type=str, default=None)
+
 
     parser.add_argument("--pretrain", type=float, default=0.3)
 
@@ -658,19 +663,19 @@ if __name__ == "__main__":
     args = get_args()
     args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path 
     seed_everything(args.seed)  # fix the seed for reproducibility
+    if args.test_model is None:
+        if args.nli_pretrain:
+            args.option = "finetune"
+            args.nli_pretrain_filepath = f'nli_pretrain-{args.epochs}-{args.lr}-multitask.pt'
+            pretrain_nli(args)
 
-    if args.nli_pretrain:
-        args.option = "finetune"
-        args.nli_pretrain_filepath = f'nli_pretrain-{args.epochs}-{args.lr}-multitask.pt'
-        pretrain_nli(args)
+        if args.gradient_surgery:
+            args.option = "finetune"
+            args.gradient_surgery_filepath = f'gradient_surgery-{args.epochs}-{args.lr}-multitask.pt'
+            train_multitask_gradient_surgery(args)
 
-    if args.gradient_surgery:
-        args.option = "finetune"
-        args.gradient_surgery_filepath = f'gradient_surgery-{args.epochs}-{args.lr}-multitask.pt'
-        train_multitask_gradient_surgery(args)
-
-    args.option = 'pretrain'
-    train_final_layers(args)
+        args.option = 'pretrain'
+        train_final_layers(args)
 
     print(f"\ntesting model commencing\n")
     test_model(args)
