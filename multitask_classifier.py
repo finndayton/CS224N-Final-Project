@@ -156,6 +156,8 @@ def save_model(model, optimizer, args, config, filepath):
 
 ## Currently only trains on sst dataset
 def pretrain_nli(args):
+    save_path = args.nli_filepath
+
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
     # Load data
     # Create the data and its corresponding datasets and dataloader
@@ -220,7 +222,7 @@ def pretrain_nli(args):
 
         if dev_acc > best_dev_acc:
             best_dev_acc = dev_acc
-            save_model(model, optimizer, args, config, args.nli_pretrain_filepath)
+            save_model(model, optimizer, args, config, save_path)
 
         print(f"Epoch {epoch}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
@@ -359,12 +361,18 @@ def train_multitask_gradient_surgery(args):
     print(f"\n sst_train_dataloader: {sst_dataloader_len}, sts_train_dataloader: {sts_dataloader_len}, para_train_dataloader: {para_dataloader_len}\n")
 
     
-    if args.nli_pretrain:
-        # Get model from pretrain
+    if args.nli:
+        # Load model from nli
         saved = torch.load(args.nli_pretrain_filepath)
         config = saved['model_config']
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
+
+        if args.gs_wrap:
+            save_path = args.nli_gs_wrap_filepath
+        else:
+            save_path = args.nli_gs_batch_diff_filepath
+    
     else:
         # Init model
         config = {'hidden_dropout_prob': args.hidden_dropout_prob,
@@ -376,6 +384,12 @@ def train_multitask_gradient_surgery(args):
         config = SimpleNamespace(**config)
 
         model = MultitaskBERT(config)
+
+        if args.gs_wrap:
+            save_path = args.gs_wrap_filepath
+        else:
+            save_path = args.gs_batch_diff_filepath
+
     model = model.to(device)
 
     lr = args.lr
@@ -457,7 +471,7 @@ def train_multitask_gradient_surgery(args):
             best_dev_sst_acc = dev_sst_acc
             best_dev_para_acc = dev_para_acc
             best_dev_sts_corr = dev_sts_corr
-            save_model(model, pc_adam._optim, args, config, args.gradient_surgery_filepath)
+            save_model(model, pc_adam._optim, args, config, save_path)
 
         print(f"Epoch {epoch}: train loss SST :: {train_loss_sst :.3f}, train acc :: {train_sst_acc :.3f}, dev acc :: {dev_sst_acc :.3f}")
         print(f"Epoch {epoch}: train loss PARA :: {train_loss_para :.3f}, train acc :: {train_para_acc :.3f}, dev acc :: {dev_para_acc :.3f}")
@@ -508,18 +522,38 @@ def train_final_layers(args):
                                     collate_fn=para_dev_data.collate_fn)
 
     
-    if args.gradient_surgery:
-        saved = torch.load(args.gradient_surgery_filepath)
+    if args.nli and args.gs_wrap:
+        save_path = args.nli_gs_wrap_final_layer_filepath
+        saved = torch.load(args.nli_gs_wrap_filepath)
         config = saved['model_config']
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
-    elif args.nli_pretrain:
-        # Get model from pretrain
-        saved = torch.load(args.nli_pretrain_filepath)
+    elif args.nli and args.gs_batch_diff:
+        save_path = args.nli_gs_batch_diff_final_layer_filepath
+        saved = torch.load(args.nli_gs_batch_diff_filepath)
+        config = saved['model_config']
+        model = MultitaskBERT(config)
+        model.load_state_dict(saved['model'])
+    elif args.gs_wrap:
+        save_path = args.gs_wrap_final_layer_filepath
+        saved = torch.load(args.gs_wrap_filepath)
+        config = saved['model_config']
+        model = MultitaskBERT(config)
+        model.load_state_dict(saved['model'])
+    elif args.gs_batch_diff:
+        save_path = args.gs_batch_diff_final_layer_filepath
+        saved = torch.load(args.gs_batch_diff_filepath)
+        config = saved['model_config']
+        model = MultitaskBERT(config)
+        model.load_state_dict(saved['model'])
+    elif args.nli:
+        save_path = args.nli_final_layer_filepath
+        saved = torch.load(args.nli_filepath)
         config = saved['model_config']
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
     else:
+        save_path = args.final_layer_filepath
         # Init model
         config = {'hidden_dropout_prob': args.hidden_dropout_prob,
                 'num_labels': num_sentiment_labels,
@@ -536,7 +570,7 @@ def train_final_layers(args):
     optimizer = AdamW(model.parameters(), lr=lr)
     # best_dev_acc = 0
 
-    def finetune_layer(name, train_dataloader, dev_dataloader, eval_fn):
+    def finetune_layer(name, train_dataloader, dev_dataloader, eval_fn, save_path):
         # Run for the specified number of epochs
         best_dev_acc = 0
         for epoch in range(args.epochs):
@@ -579,24 +613,48 @@ def train_final_layers(args):
 
             if dev_acc > best_dev_acc:
                 best_dev_acc = dev_acc
-                save_model(model, optimizer, args, config, args.filepath)
+                save_model(model, optimizer, args, config, save_path)
 
             print(f"Epoch {epoch} for {name}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
     print("Finetuning SST Layer")
-    finetune_layer("sst", sst_train_dataloader, sst_dev_dataloader, sentiment_eval)
+    finetune_layer("sst", sst_train_dataloader, sst_dev_dataloader, sentiment_eval, save_path)
     print("Finetuning QUORA Layer")
-    finetune_layer("quora", para_train_dataloader, para_dev_dataloader, paraphrase_eval )
+    finetune_layer("quora", para_train_dataloader, para_dev_dataloader, paraphrase_eval, save_path)
     print("Finetuning STS Layer")
-    finetune_layer("sts", sts_train_dataloader, sts_dev_dataloader, similarity_eval)
+    finetune_layer("sts", sts_train_dataloader, sts_dev_dataloader, similarity_eval, save_path)
 
 def test_model(args):
+    if args.nli and args.gs_wrap and args.final_layer:
+        load_filepath = args.nli_gs_wrap_final_layer_filepath
+    elif args.nli and args.gs_batch_diff and args.final_layer:
+        load_filepath = args.nli_gs_batch_diff_final_layer_filepath
+    elif args.gs_wrap and args.final_layer:
+        load_filepath = args.gs_wrap_final_layer_filepath
+    elif args.gs_batch_diff and args.final_layer:
+        load_filepath = args.gs_batch_diff_final_layer_filepath
+    elif args.nli and args.final_layer:
+        load_filepath = args.nli_final_layer_filepath
+    elif args.nli and args.gs_wrap:
+        load_filepath = args.nli_gs_wrap_filepath
+    elif args.nli and args.gs_batch_diff:
+        load_filepath = args.nli_gs_batch_diff_filepath
+    elif args.final_layer:
+        load_filepath = args.final_layer_filepath
+    elif args.gs_wrap:
+        load_filepath = args.gs_wrap_filepath
+    elif args.gs_batch_diff:
+        load_filepath = args.gs_batch_diff_filepath
+    elif args.nli:
+        load_filepath = args.nli_filepath
+
+
     with torch.no_grad():
         device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
         if args.test_model:
             saved = torch.load(args.test_model)
         else:
-            saved = torch.load(args.filepath)
+            saved = torch.load(load_filepath)
         config = saved['model_config']
 
         model = MultitaskBERT(config)
@@ -661,21 +719,39 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
+    # Possible Model Filepaths
+    args.nli_filepath = f'nli-{args.epochs}-{args.lr}.pt'
+    args.gs_batch_diff_filepath = f'gs_batch_diff-{args.epochs}-{args.lr}.pt'
+    args.gs_wrap_filepath = f'gs_wrap-{args.epochs}-{args.lr}.pt'
+    args.final_layer_filepath = f'final_layer-{args.epochs}-{args.lr}.pt'
+
+    args.nli_gs_batch_diff_filepath = f'nli-gs_batch_diff-{args.epochs}-{args.lr}.pt'
+    args.nli_gs_wrap_filepath = f'nli-gs_wrap-{args.epochs}-{args.lr}.pt'
+    args.nli_final_layer_filepath = f'nli-final_layer-{args.epochs}-{args.lr}.pt'
+
+    args.gs_batch_diff_final_layer_filepath = f'gs_batch_diff-final_layer-{args.epochs}-{args.lr}.pt'
+    args.gs_wrap_final_layer_filepath = f'gs_wrap-final_layer-{args.epochs}-{args.lr}.pt'
+
+    args.nli_gs_batch_diff_final_layer_filepath = f'nli-gs_batch_diff-final_layer-{args.epochs}-{args.lr}.pt'
+    args.nli_gs_wrap_final_layer_filepath = f'nli-gs_wrap-final_layer-{args.epochs}-{args.lr}.pt'
+
+
     args.filepath = f'{args.option}-{args.epochs}-{args.lr}-multitask.pt' # save path 
     seed_everything(args.seed)  # fix the seed for reproducibility
     if args.test_model is None:
-        if args.nli_pretrain:
+        if args.nli == 'train':
             args.option = "finetune"
-            args.nli_pretrain_filepath = f'nli_pretrain-{args.epochs}-{args.lr}-multitask.pt'
+            args.nli_pretrain_filepath = f'nli-{args.epochs}-{args.lr}.pt'
             pretrain_nli(args)
 
-        if args.gradient_surgery:
+        if args.gs_batch_diff == 'train':
             args.option = "finetune"
-            args.gradient_surgery_filepath = f'gradient_surgery-{args.epochs}-{args.lr}-multitask.pt'
+            args.gradient_surgery_filepath = f'gs_batch_diff-{args.epochs}-{args.lr}.pt'
             train_multitask_gradient_surgery(args)
 
-        args.option = 'pretrain'
-        train_final_layers(args)
+        if args.final_layer == 'train':
+            args.option = 'pretrain'
+            train_final_layers(args)
 
     print(f"\ntesting model commencing\n")
     test_model(args)
