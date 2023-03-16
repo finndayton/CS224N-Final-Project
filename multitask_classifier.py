@@ -704,15 +704,15 @@ def get_args():
     parser.add_argument("--lr", type=float, help="learning rate, default lr for 'pretrain': 1e-3, 'finetune': 1e-5",
                         default=1e-5)
     
-    # nli pretrain args
-    parser.add_argument("--nli_pretrain", help='', type=bool, default=False)
-    # gradient surgery flag
-    parser.add_argument("--gradient_surgery", help='', type=bool, default=False)
 
     parser.add_argument("--test_model", help='', type=str, default=None)
 
+    # For the below flags, pass in 'train' or 'load'
+    parser.add_argument("--nli", help='', type=str, default=None)
+    parser.add_argument("--gs_wrap", help='', type=str, default=None)
+    parser.add_argument("--gs_batch_diff", help='', type=str, default=None)
+    parser.add_argument("--final_layer", help='', type=str, default=None)
 
-    parser.add_argument("--pretrain", type=float, default=0.3)
 
     args = parser.parse_args()
     return args
