@@ -564,7 +564,11 @@ def train_final_layers(args):
     if load_path:
         saved = torch.load(load_path)
         config = saved['model_config']
-        config['option'] = 'pretrain'
+      
+        config_dict = vars(config)  # convert the namespace object to a dictionary
+        config_dict['option'] = 'pretrain' 
+        config = SimpleNamespace(**config_dict)  # convert the dictionary back to a namespace object
+
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
         print("Final layer training loaded model from: ", load_path)
