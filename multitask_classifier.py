@@ -57,10 +57,13 @@ class MultitaskBERT(nn.Module):
         self.sentiment_ln = nn.Linear(config.hidden_size, 5)
 
         self.paraphrase_ln = nn.Linear(config.hidden_size * 2, 1)
+        self.paraphrase_dropout = nn.Dropout(config.hidden_dropout_prob)
 
         self.similarity_ln = nn.Linear(config.hidden_size * 2, 1)
+        self.similarity_dropout = nn.Dropout(config.hidden_dropout_prob)
 
         self.nli_ln = nn.Linear(config.hidden_size * 2, 3)
+        self.nli_dropout = nn.Dropout(config.hidden_dropout_prob)
 
 
     def forward(self, input_ids, attention_mask):
@@ -100,8 +103,9 @@ class MultitaskBERT(nn.Module):
 
         # Concatenate the pooled outputs
         concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
+        outputs = self.paraphrase_dropout(concatenated_output)
 
-        return self.paraphrase_ln(concatenated_output)
+        return self.paraphrase_ln(outputs)
 
 
 
@@ -117,8 +121,9 @@ class MultitaskBERT(nn.Module):
 
         # Concatenate the pooled outputs
         concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
+        outputs = self.similarity_dropout(concatenated_output)
 
-        return self.similarity_ln(concatenated_output)
+        return self.similarity_ln(outputs)
     
     def predict_nli(self,
                            input_ids_1, attention_mask_1,
@@ -132,8 +137,9 @@ class MultitaskBERT(nn.Module):
 
         # Concatenate the pooled outputs
         concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
+        outputs = self.nli_dropout(concatenated_output)
 
-        return self.nli_ln(concatenated_output)
+        return self.nli_ln(outputs)
     
 
 
