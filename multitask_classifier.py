@@ -253,9 +253,9 @@ def train_multitask(args):
                                     collate_fn=sst_dev_data.collate_fn)
     
 
-    if args.nli_pretrain:
+    if args.nli:
         # Get model from pretrain
-        saved = torch.load(args.nli_pretrain_filepath)
+        saved = torch.load(args.nli_filepath)
         config = saved['model_config']
         config['finetune'] = 'finetune'
         model = MultitaskBERT(config)
@@ -314,9 +314,9 @@ def train_multitask(args):
 def train_multitask_gradient_surgery(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
 
-    batch_size_sst = 1
-    batch_size_para = 24
-    batch_size_sts = 1
+    batch_size_sst = 16 if args.gs_wrap else 1
+    batch_size_para = 16 if args.gs_wrap else 24
+    batch_size_sts = 16 if args.gs_wrap else 1
 
     # Load data
     # Create the data and its corresponding datasets and dataloader
@@ -328,41 +328,33 @@ def train_multitask_gradient_surgery(args):
     para_dataset_len = len(para_train_data)
 
     n = max(sst_dataset_len, sts_dataset_len, para_dataset_len)
-
-    print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
+    max_len = n if args.gs_wrap else None
     
+    # Build DataLoaders
     # sst
-    sst_train_data = SentenceClassificationDataset(sst_train_data, args)
+    sst_train_data = SentenceClassificationDataset(sst_train_data, args, max_len=max_len)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
-
-    # sts
-    sts_train_data = SentencePairDataset(sts_train_data, args)
-    sts_dev_data = SentencePairDataset(sts_dev_data, args)
-
-    # quora
-    para_train_data = SentencePairDataset(para_train_data, args)
-    para_dev_data = SentencePairDataset(para_dev_data, args)
-
-    print("Para example ", para_train_data[0])
-    print("STS example: ", sts_train_data[0])
-
-    print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
-
-    #sst
     sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=batch_size_sst,
                                       collate_fn=sst_train_data.collate_fn)
     sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=batch_size_sst,
                                     collate_fn=sst_dev_data.collate_fn)
-    #sts
+
+    # sts
+    sts_train_data = SentencePairDataset(sts_train_data, args, max_len=max_len)
+    sts_dev_data = SentencePairDataset(sts_dev_data, args)
     sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=batch_size_sts,
                                       collate_fn=sts_train_data.collate_fn)
     sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=batch_size_sts,
                                     collate_fn=sts_dev_data.collate_fn)
-    #quora 
+
+    # quora
+    para_train_data = SentencePairDataset(para_train_data, args, max_len=max_len)
+    para_dev_data = SentencePairDataset(para_dev_data, args)
     para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=batch_size_para,
                                       collate_fn=para_train_data.collate_fn)
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=batch_size_para,
                                     collate_fn=para_dev_data.collate_fn)
+
 
     sst_dataloader_len = len(sst_train_dataloader)
     sts_dataloader_len = len(sts_train_dataloader)
@@ -375,7 +367,7 @@ def train_multitask_gradient_surgery(args):
     
     if args.nli:
         # Load model from nli
-        saved = torch.load(args.nli_pretrain_filepath)
+        saved = torch.load(args.nli_filepath)
         config = saved['model_config']
         config['option'] = 'finetune'
         model = MultitaskBERT(config)
@@ -417,15 +409,7 @@ def train_multitask_gradient_surgery(args):
         train_loss_sst, train_loss_sts, train_loss_para = 0,0,0
         num_batches = 0
 
-        # pytorch might be smart enough to not need the added logic __getitem__ / __len__ in datasets.py
-        sst_train_dataloader_iter = iter(sst_train_dataloader)
-        sts_train_dataloader_iter = iter(sts_train_dataloader)
-        para_train_dataloader_iter = iter(para_train_dataloader)
-        for i in tqdm(range(min_dataloader_len), desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            batch_sst = next(sst_train_dataloader_iter)
-            batch_sts = next(sts_train_dataloader_iter)
-            batch_para = next(para_train_dataloader_iter)
-
+        def gradient_surgery_batch_step(batch_sst, batch_sts, batch_para):
             # Calculate loss for SST
             b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
                                        batch_sst['attention_mask'], batch_sst['labels'])
@@ -452,11 +436,39 @@ def train_multitask_gradient_surgery(args):
             pc_adam.pc_backward([loss_sst, loss_sts, loss_para/batch_size_para])
             pc_adam.step()
 
-            train_loss_sst += loss_sst.item()
-            train_loss_sts += loss_sts.item()
-            train_loss_para += loss_para.item()
+            return loss_sst, loss_sts, loss_para
 
-            num_batches += 1
+        # GS Wrap around
+        if args.gs_wrap:
+            print(f"Performing GS_WRAP. Double check dataloader lengths: sst_train_dataloader: {len(sst_train_dataloader)}, sts_train_dataloader: {len(sts_train_dataloader)}, para_train_dataloader: {len(para_train_dataloader)}")
+            for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
+                
+                loss_sst, loss_sts, loss_para = gradient_surgery_batch_step(batch_sst, batch_sts, batch_para)
+
+                train_loss_sst += loss_sst.item()
+                train_loss_sts += loss_sts.item()
+                train_loss_para += loss_para.item()
+
+                num_batches += 1
+
+        # GS Different Batch Sizes
+        else: 
+            print(f"Performing GS_BATCH_DIFF. Double check dataloader lengths: sst_train_dataloader: {len(sst_train_dataloader)}, sts_train_dataloader: {len(sts_train_dataloader)}, para_train_dataloader: {len(para_train_dataloader)}")
+            sst_train_dataloader_iter = iter(sst_train_dataloader)
+            sts_train_dataloader_iter = iter(sts_train_dataloader)
+            para_train_dataloader_iter = iter(para_train_dataloader)
+            for i in tqdm(range(min_dataloader_len), desc=f'train-{epoch}', disable=TQDM_DISABLE):
+                batch_sst = next(sst_train_dataloader_iter)
+                batch_sts = next(sts_train_dataloader_iter)
+                batch_para = next(para_train_dataloader_iter)
+
+                loss_sst, loss_sts, loss_para = gradient_surgery_batch_step(batch_sst, batch_sts, batch_para)
+
+                train_loss_sst += loss_sst.item()
+                train_loss_sts += loss_sts.item()
+                train_loss_para += loss_para.item()
+
+                num_batches += 1
 
         train_loss_sst = train_loss_sst / (num_batches)
         train_loss_sts = train_loss_sts / (num_batches)
@@ -736,11 +748,9 @@ if __name__ == "__main__":
     seed_everything(args.seed)  # fix the seed for reproducibility
     if args.test_model is None:
         if args.nli == 'train':
-            args.nli_pretrain_filepath = f'nli-{args.epochs}-{args.lr}.pt'
             pretrain_nli(args)
 
-        if args.gs_batch_diff == 'train':
-            args.gradient_surgery_filepath = f'gs_batch_diff-{args.epochs}-{args.lr}.pt'
+        if args.gs_batch_diff == 'train' or args.gs_wrap == 'train':
             train_multitask_gradient_surgery(args)
 
         if args.final_layer == 'train':
