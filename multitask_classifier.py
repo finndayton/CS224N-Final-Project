@@ -147,9 +147,9 @@ class MultitaskBERT(nn.Module):
     def predict_nli(self,
                         input_ids_1, attention_mask_1,
                         input_ids_2, attention_mask_2):
-    '''Given a batch of pairs of sentences, outputs 3 logits for each of
+        '''Given a batch of pairs of sentences, outputs 3 logits for each of
         the 3 classes: 'neutral', 'entailment', 'contradiction'
-    '''
+        '''
         ### TODO
         bert_output_1 = self.forward(input_ids_1, attention_mask_1)
         bert_output_2 = self.forward(input_ids_2, attention_mask_2)
@@ -686,15 +686,18 @@ def test_model(args):
     with torch.no_grad():
         device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
         if args.test_model:
-            saved = torch.load(args.test_model)
+            file_path = args.test_model
+            #saved = torch.load(args.test_model)
         else:
-            saved = torch.load(load_filepath)
+            file_path = load_filepath
+            #saved = torch.load(load_filepath)
+        saved = torch.load(file_path)
         config = saved['model_config']
 
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
         model = model.to(device)
-        print(f"Loaded model to test from {args.filepath}")
+        print(f"Loaded model to test from {file_path}")
 
         test_model_multitask(args, model, device)
 
@@ -751,7 +754,7 @@ def get_args():
     parser.add_argument("--nli_limit", help='', type=int, default=None)
 
     # add in a concat arg to concantate sentence pairs
-    parser.add_argument("--concat" help='', type=bool, default=False)
+    parser.add_argument("--concat", help='', type=bool, default=False)
 
     args = parser.parse_args()
     return args
