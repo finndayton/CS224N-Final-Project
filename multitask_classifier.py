@@ -97,13 +97,7 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit); it will be passed to the sigmoid function
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
-        ### TODO    
-        # print(f"\n in predict_paraphrase \n")
-        # print(f"input_ids_1 shape: {input_ids_1.size()}")
-        # print(f"input_ids_2 shape: {input_ids_2.size()}")
-        # print(f"attention_mask_1: {attention_mask_1.shape}")
-        # print(f"attention_mask_2: {attention_mask_2.shape} \n")
-        
+        ### TODO           
         bert_output_1 = self.forward(input_ids_1, attention_mask_1)
         bert_output_2 = self.forward(input_ids_2, attention_mask_2)
 
@@ -114,8 +108,6 @@ class MultitaskBERT(nn.Module):
         outputs = self.paraphrase_dropout(concatenated_output)
 
         return self.paraphrase_ln(outputs).squeeze()
-
-
 
     def predict_similarity(self,
                            input_ids_1, attention_mask_1,
@@ -134,15 +126,6 @@ class MultitaskBERT(nn.Module):
         outputs = self.similarity_dropout(concatenated_output)
 
         return self.similarity_ln(outputs).squeeze()
-    
-    # def predict_nli(self, input_ids, attention_mask):
-    #     '''Given a batch of pairs of sentences, outputs 3 logits for each of
-    #         the 3 classes: 'neutral', 'entailment', 'contradiction'
-    #     '''
-    #     ### 
-    #     bert_output = self.bert(input_ids, attention_mask)
-    #     outputs = self.nli_dropout(bert_output)
-    #     return self.nli_ln(outputs)
 
     def predict_nli(self,
                         input_ids_1, attention_mask_1,
@@ -159,10 +142,6 @@ class MultitaskBERT(nn.Module):
         outputs = self.nli_dropout(concatenated_output)
 
         return self.nli_ln(outputs)
-            
-    
-
-
 
 
 def save_model(model, optimizer, args, config, filepath):
@@ -206,7 +185,7 @@ def pretrain_nli(args):
               'num_labels': num_sentiment_labels,
               'hidden_size': 768,
               'data_dir': '.',
-              'option': args.option}
+              'option': 'finetune'}
 
     config = SimpleNamespace(**config)
 
@@ -223,18 +202,17 @@ def pretrain_nli(args):
         train_loss = 0
         num_batches = 0
         for batch in tqdm(multinli_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            # b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'], batch['attention_mask_1'], 
-            #                            batch['token_ids_2'], batch['attention_mask_2'], batch['labels'])
+            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'], batch['attention_mask_1'], 
+                                       batch['token_ids_2'], batch['attention_mask_2'], batch['labels'])
 
-            b_ids, b_mask, b_labels = (batch['token_ids_concat'], batch['attention_mask_concat'],batch['labels'])
-
-
-            b_ids = b_ids.to(device)
-            b_mask = b_mask.to(device)
+            b_ids_1 = b_ids_1.to(device)
+            b_mask_1 = b_mask_1.to(device)
+            b_ids_2 = b_ids_2.to(device)
+            b_mask_2 = b_mask_2.to(device)
             b_labels = b_labels.to(device)
 
             optimizer.zero_grad()
-            logits = model.predict_nli(b_ids, b_mask)
+            logits = model.predict_nli(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
 
             loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / batch_size_nli
 
@@ -275,10 +253,11 @@ def train_multitask(args):
                                     collate_fn=sst_dev_data.collate_fn)
     
 
-    if args.nli_pretrain:
+    if args.nli:
         # Get model from pretrain
-        saved = torch.load(args.nli_pretrain_filepath)
+        saved = torch.load(args.nli_filepath)
         config = saved['model_config']
+        config['finetune'] = 'finetune'
         model = MultitaskBERT(config)
     else:
         # Init model
@@ -286,7 +265,7 @@ def train_multitask(args):
                 'num_labels': num_sentiment_labels,
                 'hidden_size': 768,
                 'data_dir': '.',
-                'option': args.option}
+                'option': 'finetune'}
 
         config = SimpleNamespace(**config)
 
@@ -335,9 +314,9 @@ def train_multitask(args):
 def train_multitask_gradient_surgery(args):
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
 
-    batch_size_sst = 1
-    batch_size_para = 24
-    batch_size_sts = 1
+    batch_size_sst = 16 if args.gs_wrap else 1
+    batch_size_para = 16 if args.gs_wrap else 24
+    batch_size_sts = 16 if args.gs_wrap else 1
 
     # Load data
     # Create the data and its corresponding datasets and dataloader
@@ -349,41 +328,33 @@ def train_multitask_gradient_surgery(args):
     para_dataset_len = len(para_train_data)
 
     n = max(sst_dataset_len, sts_dataset_len, para_dataset_len)
-
-    print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
+    max_len = n if args.gs_wrap else None
     
+    # Build DataLoaders
     # sst
-    sst_train_data = SentenceClassificationDataset(sst_train_data, args)
+    sst_train_data = SentenceClassificationDataset(sst_train_data, args, max_len=max_len)
     sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
-
-    # sts
-    sts_train_data = SentencePairDataset(sts_train_data, args)
-    sts_dev_data = SentencePairDataset(sts_dev_data, args)
-
-    # quora
-    para_train_data = SentencePairDataset(para_train_data, args)
-    para_dev_data = SentencePairDataset(para_dev_data, args)
-
-    print("Para example ", para_train_data[0])
-    print("STS example: ", sts_train_data[0])
-
-    print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
-
-    #sst
     sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=batch_size_sst,
                                       collate_fn=sst_train_data.collate_fn)
     sst_dev_dataloader = DataLoader(sst_dev_data, shuffle=False, batch_size=batch_size_sst,
                                     collate_fn=sst_dev_data.collate_fn)
-    #sts
+
+    # sts
+    sts_train_data = SentencePairDataset(sts_train_data, args, max_len=max_len)
+    sts_dev_data = SentencePairDataset(sts_dev_data, args)
     sts_train_dataloader = DataLoader(sts_train_data, shuffle=True, batch_size=batch_size_sts,
                                       collate_fn=sts_train_data.collate_fn)
     sts_dev_dataloader = DataLoader(sts_dev_data, shuffle=False, batch_size=batch_size_sts,
                                     collate_fn=sts_dev_data.collate_fn)
-    #quora 
+
+    # quora
+    para_train_data = SentencePairDataset(para_train_data, args, max_len=max_len)
+    para_dev_data = SentencePairDataset(para_dev_data, args)
     para_train_dataloader = DataLoader(para_train_data, shuffle=True, batch_size=batch_size_para,
                                       collate_fn=para_train_data.collate_fn)
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=batch_size_para,
                                     collate_fn=para_dev_data.collate_fn)
+
 
     sst_dataloader_len = len(sst_train_dataloader)
     sts_dataloader_len = len(sts_train_dataloader)
@@ -396,8 +367,9 @@ def train_multitask_gradient_surgery(args):
     
     if args.nli:
         # Load model from nli
-        saved = torch.load(args.nli_pretrain_filepath)
+        saved = torch.load(args.nli_filepath)
         config = saved['model_config']
+        config['option'] = 'finetune'
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
 
@@ -412,7 +384,7 @@ def train_multitask_gradient_surgery(args):
                 'num_labels': num_sentiment_labels,
                 'hidden_size': 768,
                 'data_dir': '.',
-                'option': args.option}
+                'option': 'finetune'}
 
         config = SimpleNamespace(**config)
 
@@ -437,56 +409,66 @@ def train_multitask_gradient_surgery(args):
         train_loss_sst, train_loss_sts, train_loss_para = 0,0,0
         num_batches = 0
 
-        # pytorch might be smart enough to not need the added logic __getitem__ / __len__ in datasets.py
-        sst_train_dataloader_iter = iter(sst_train_dataloader)
-        sts_train_dataloader_iter = iter(sts_train_dataloader)
-        para_train_dataloader_iter = iter(para_train_dataloader)
-        for i in tqdm(range(min_dataloader_len), desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            batch_sst = next(sst_train_dataloader_iter)
-            batch_sts = next(sts_train_dataloader_iter)
-            batch_para = next(para_train_dataloader_iter)
-
-        # for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
+        def gradient_surgery_batch_step(batch_sst, batch_sts, batch_para):
             # Calculate loss for SST
             b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
                                        batch_sst['attention_mask'], batch_sst['labels'])
-
             b_ids_sst, b_mask_sst, b_labels_sst = b_ids_sst.to(device),  b_mask_sst.to(device), b_labels_sst.to(device)
-            # b_mask_sst = b_mask_sst.to(device)
-            # b_labels_sst = b_labels_sst.to(device)
-
             logits = model.predict_sentiment(b_ids_sst, b_mask_sst)
             loss_sst = F.cross_entropy(logits, b_labels_sst.view(-1), reduction='sum') / batch_size_sst
 
             # Calculate loss for STS
             b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = (batch_sts['token_ids_1'], batch_sts['attention_mask_1'], 
                                        batch_sts['token_ids_2'], batch_sts['attention_mask_2'], batch_sts['labels'])
-            
-            # Move to GPU
             b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = b_ids_sts_1.to(device), b_mask_sts_1.to(device), b_ids_sts_2.to(device), b_mask_sts_2.to(device), b_labels_sts.to(device)
             logits = model.predict_similarity(b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2)
-            loss_sts = nn.MSELoss()(logits, b_labels_sts.float().view(-1)) / batch_size_sts
+            loss_sts = nn.MSELoss()(logits, b_labels_sts.float()) / batch_size_sts
         
             # Calculate loss for PARA
             b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = (batch_para['token_ids_1'], batch_para['attention_mask_1'], 
                                        batch_para['token_ids_2'], batch_para['attention_mask_2'], batch_para['labels'])
-
-            # Move to GPU
             b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = b_ids_para_1.to(device), b_mask_para_1.to(device), b_ids_para_2.to(device), b_mask_para_2.to(device), b_labels_para.to(device)
-
             logits = model.predict_paraphrase(b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2)
             b_labels_para = b_labels_para.float()
             loss_para_fn = nn.BCEWithLogitsLoss()
-            loss_para = loss_para_fn(logits, b_labels_para[:len(logits)].view(len(logits),1)) / batch_size_para
+            loss_para = nn.BCEWithLogitsLoss()(logits, b_labels_para.float()) / batch_size_para
 
             pc_adam.pc_backward([loss_sst, loss_sts, loss_para/batch_size_para])
             pc_adam.step()
 
-            train_loss_sst += loss_sst.item()
-            train_loss_sts += loss_sts.item()
-            train_loss_para += loss_para.item()
+            return loss_sst, loss_sts, loss_para
 
-            num_batches += 1
+        # GS Wrap around
+        if args.gs_wrap:
+            print(f"Performing GS_WRAP. Double check dataloader lengths: sst_train_dataloader: {len(sst_train_dataloader)}, sts_train_dataloader: {len(sts_train_dataloader)}, para_train_dataloader: {len(para_train_dataloader)}")
+            for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
+                
+                loss_sst, loss_sts, loss_para = gradient_surgery_batch_step(batch_sst, batch_sts, batch_para)
+
+                train_loss_sst += loss_sst.item()
+                train_loss_sts += loss_sts.item()
+                train_loss_para += loss_para.item()
+
+                num_batches += 1
+
+        # GS Different Batch Sizes
+        else: 
+            print(f"Performing GS_BATCH_DIFF. Double check dataloader lengths: sst_train_dataloader: {len(sst_train_dataloader)}, sts_train_dataloader: {len(sts_train_dataloader)}, para_train_dataloader: {len(para_train_dataloader)}")
+            sst_train_dataloader_iter = iter(sst_train_dataloader)
+            sts_train_dataloader_iter = iter(sts_train_dataloader)
+            para_train_dataloader_iter = iter(para_train_dataloader)
+            for i in tqdm(range(min_dataloader_len), desc=f'train-{epoch}', disable=TQDM_DISABLE):
+                batch_sst = next(sst_train_dataloader_iter)
+                batch_sts = next(sts_train_dataloader_iter)
+                batch_para = next(para_train_dataloader_iter)
+
+                loss_sst, loss_sts, loss_para = gradient_surgery_batch_step(batch_sst, batch_sts, batch_para)
+
+                train_loss_sst += loss_sst.item()
+                train_loss_sts += loss_sts.item()
+                train_loss_para += loss_para.item()
+
+                num_batches += 1
 
         train_loss_sst = train_loss_sst / (num_batches)
         train_loss_sts = train_loss_sts / (num_batches)
@@ -494,7 +476,7 @@ def train_multitask_gradient_surgery(args):
 
         print(f"\ntrain eval:\n")
         train_eval = model_eval_multitask(sst_train_dataloader, para_train_dataloader, sts_train_dataloader, model, device)
-        print(f"\ntest eval:\n")
+        print(f"\ndev eval:\n")
         dev_eval = model_eval_multitask(sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader, model, device)
 
         train_sst_acc, train_para_acc, train_sts_corr = train_eval[3], train_eval[0], train_eval[6]    
@@ -558,41 +540,34 @@ def train_final_layers(args):
     if args.nli and args.gs_wrap:
         save_path = args.nli_gs_wrap_final_layer_filepath
         saved = torch.load(args.nli_gs_wrap_filepath)
-        config = saved['model_config']
-        model = MultitaskBERT(config)
-        model.load_state_dict(saved['model'])
     elif args.nli and args.gs_batch_diff:
         save_path = args.nli_gs_batch_diff_final_layer_filepath
         saved = torch.load(args.nli_gs_batch_diff_filepath)
-        config = saved['model_config']
-        model = MultitaskBERT(config)
-        model.load_state_dict(saved['model'])
     elif args.gs_wrap:
         save_path = args.gs_wrap_final_layer_filepath
         saved = torch.load(args.gs_wrap_filepath)
-        config = saved['model_config']
-        model = MultitaskBERT(config)
-        model.load_state_dict(saved['model'])
     elif args.gs_batch_diff:
         save_path = args.gs_batch_diff_final_layer_filepath
         saved = torch.load(args.gs_batch_diff_filepath)
-        config = saved['model_config']
-        model = MultitaskBERT(config)
-        model.load_state_dict(saved['model'])
     elif args.nli:
         save_path = args.nli_final_layer_filepath
         saved = torch.load(args.nli_filepath)
+    else:
+        save_path = args.final_layer_filepath
+        saved = None
+
+    if saved:
         config = saved['model_config']
+        config['option'] = 'pretrain'
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
     else:
-        save_path = args.final_layer_filepath
         # Init model
         config = {'hidden_dropout_prob': args.hidden_dropout_prob,
                 'num_labels': num_sentiment_labels,
                 'hidden_size': 768,
                 'data_dir': '.',
-                'option': args.option}
+                'option': 'pretrain'}
                 
         config = SimpleNamespace(**config)
         model = MultitaskBERT(config)
@@ -627,13 +602,10 @@ def train_final_layers(args):
                     b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = b_ids_1.to(device), b_mask_1.to(device), b_ids_2.to(device), b_mask_2.to(device), b_labels.to(device)
                     if name == "sts":
                         logits = model.predict_similarity(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-                        loss = nn.MSELoss()(logits, b_labels.float().view(-1)) / args.batch_size
+                        loss = nn.MSELoss()(logits, b_labels.float()) / args.batch_size
                     elif name == "quora":
                         logits = model.predict_paraphrase(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-                        b_labels = b_labels.float()
-                        loss = nn.BCEWithLogitsLoss()(logits, b_labels) / args.batch_size
-                        # loss = nn.BCEWithLogitsLoss()(logits, b_labels.view(-1)) / args.batch_size
-                        # loss = nn.BCEWithLogitsLoss()(logits, b_labels[:len(logits)].view(len(logits),1)) / args.batch_size
+                        loss = nn.BCEWithLogitsLoss()(logits, b_labels.float()) / args.batch_size
                 loss.backward()
                 optimizer.step()
 
@@ -753,9 +725,6 @@ def get_args():
     # In case we want to train nli on less examples
     parser.add_argument("--nli_limit", help='', type=int, default=None)
 
-    # add in a concat arg to concantate sentence pairs
-    parser.add_argument("--concat", help='', type=bool, default=False)
-
     args = parser.parse_args()
     return args
 
@@ -782,18 +751,12 @@ if __name__ == "__main__":
     seed_everything(args.seed)  # fix the seed for reproducibility
     if args.test_model is None:
         if args.nli == 'train':
-            args.option = "finetune"
-            args.nli_pretrain_filepath = f'nli-{args.epochs}-{args.lr}.pt'
             pretrain_nli(args)
 
-        if args.gs_batch_diff == 'train':
-            args.option = "finetune"
-            args.gradient_surgery_filepath = f'gs_batch_diff-{args.epochs}-{args.lr}.pt'
+        if args.gs_batch_diff == 'train' or args.gs_wrap == 'train':
             train_multitask_gradient_surgery(args)
 
         if args.final_layer == 'train':
-            print("here")
-            args.option = 'pretrain'
             train_final_layers(args)
 
     print(f"\ntesting model commencing\n")
