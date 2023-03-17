@@ -372,6 +372,7 @@ def train_multitask_gradient_surgery(args):
         config['option'] = 'finetune'
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
+        print("Gradient Surgery training loaded model from: ", args.nli_filepath)
 
         if args.gs_wrap:
             save_path = args.nli_gs_wrap_filepath
@@ -432,8 +433,12 @@ def train_multitask_gradient_surgery(args):
             b_labels_para = b_labels_para.float()
             loss_para_fn = nn.BCEWithLogitsLoss()
             loss_para = nn.BCEWithLogitsLoss()(logits, b_labels_para.float()) / batch_size_para
-
-            pc_adam.pc_backward([loss_sst, loss_sts, loss_para/batch_size_para])
+            
+            if args.gs_wrap:
+                pc_adam.pc_backward([loss_sst, loss_sts, loss_para])
+            else:
+                pc_adam.pc_backward([loss_sst, loss_sts, loss_para/batch_size_para])
+                
             pc_adam.step()
 
             return loss_sst, loss_sts, loss_para
@@ -539,28 +544,30 @@ def train_final_layers(args):
     
     if args.nli and args.gs_wrap:
         save_path = args.nli_gs_wrap_final_layer_filepath
-        saved = torch.load(args.nli_gs_wrap_filepath)
+        load_path = args.nli_gs_wrap_filepath
     elif args.nli and args.gs_batch_diff:
         save_path = args.nli_gs_batch_diff_final_layer_filepath
-        saved = torch.load(args.nli_gs_batch_diff_filepath)
+        load_path = args.nli_gs_batch_diff_filepath
     elif args.gs_wrap:
         save_path = args.gs_wrap_final_layer_filepath
-        saved = torch.load(args.gs_wrap_filepath)
+        load_path = args.gs_wrap_filepath
     elif args.gs_batch_diff:
         save_path = args.gs_batch_diff_final_layer_filepath
-        saved = torch.load(args.gs_batch_diff_filepath)
+        load_path = args.gs_batch_diff_filepath
     elif args.nli:
         save_path = args.nli_final_layer_filepath
-        saved = torch.load(args.nli_filepath)
+        load_path = args.nli_filepath
     else:
         save_path = args.final_layer_filepath
-        saved = None
+        load_path = None
 
-    if saved:
+    if load_path:
+        saved = torch.load(load_path)
         config = saved['model_config']
         config['option'] = 'pretrain'
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
+        print("Final layer training loaded model from: ", load_path)
     else:
         # Init model
         config = {'hidden_dropout_prob': args.hidden_dropout_prob,
