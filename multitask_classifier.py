@@ -97,13 +97,7 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit); it will be passed to the sigmoid function
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
-        ### TODO    
-        # print(f"\n in predict_paraphrase \n")
-        # print(f"input_ids_1 shape: {input_ids_1.size()}")
-        # print(f"input_ids_2 shape: {input_ids_2.size()}")
-        # print(f"attention_mask_1: {attention_mask_1.shape}")
-        # print(f"attention_mask_2: {attention_mask_2.shape} \n")
-        
+        ### TODO           
         bert_output_1 = self.forward(input_ids_1, attention_mask_1)
         bert_output_2 = self.forward(input_ids_2, attention_mask_2)
 
@@ -114,8 +108,6 @@ class MultitaskBERT(nn.Module):
         outputs = self.paraphrase_dropout(concatenated_output)
 
         return self.paraphrase_ln(outputs).squeeze()
-
-
 
     def predict_similarity(self,
                            input_ids_1, attention_mask_1,
@@ -134,22 +126,13 @@ class MultitaskBERT(nn.Module):
         outputs = self.similarity_dropout(concatenated_output)
 
         return self.similarity_ln(outputs).squeeze()
-    
-    # def predict_nli(self, input_ids, attention_mask):
-    #     '''Given a batch of pairs of sentences, outputs 3 logits for each of
-    #         the 3 classes: 'neutral', 'entailment', 'contradiction'
-    #     '''
-    #     ### 
-    #     bert_output = self.bert(input_ids, attention_mask)
-    #     outputs = self.nli_dropout(bert_output)
-    #     return self.nli_ln(outputs)
 
     def predict_nli(self,
                         input_ids_1, attention_mask_1,
                         input_ids_2, attention_mask_2):
-    '''Given a batch of pairs of sentences, outputs 3 logits for each of
+        '''Given a batch of pairs of sentences, outputs 3 logits for each of
         the 3 classes: 'neutral', 'entailment', 'contradiction'
-    '''
+        '''
         ### TODO
         bert_output_1 = self.forward(input_ids_1, attention_mask_1)
         bert_output_2 = self.forward(input_ids_2, attention_mask_2)
@@ -159,10 +142,6 @@ class MultitaskBERT(nn.Module):
         outputs = self.nli_dropout(concatenated_output)
 
         return self.nli_ln(outputs)
-            
-    
-
-
 
 
 def save_model(model, optimizer, args, config, filepath):
@@ -223,18 +202,17 @@ def pretrain_nli(args):
         train_loss = 0
         num_batches = 0
         for batch in tqdm(multinli_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            # b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'], batch['attention_mask_1'], 
-            #                            batch['token_ids_2'], batch['attention_mask_2'], batch['labels'])
+            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'], batch['attention_mask_1'], 
+                                       batch['token_ids_2'], batch['attention_mask_2'], batch['labels'])
 
-            b_ids, b_mask, b_labels = (batch['token_ids_concat'], batch['attention_mask_concat'],batch['labels'])
-
-
-            b_ids = b_ids.to(device)
-            b_mask = b_mask.to(device)
+            b_ids_1 = b_ids_1.to(device)
+            b_mask_1 = b_mask_1.to(device)
+            b_ids_2 = b_ids_2.to(device)
+            b_mask_2 = b_mask_2.to(device)
             b_labels = b_labels.to(device)
 
             optimizer.zero_grad()
-            logits = model.predict_nli(b_ids, b_mask)
+            logits = model.predict_nli(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
 
             loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / batch_size_nli
 
@@ -448,38 +426,28 @@ def train_multitask_gradient_surgery(args):
             batch_sts = next(sts_train_dataloader_iter)
             batch_para = next(para_train_dataloader_iter)
 
-        # for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
             # Calculate loss for SST
             b_ids_sst, b_mask_sst, b_labels_sst = (batch_sst['token_ids'],
                                        batch_sst['attention_mask'], batch_sst['labels'])
-
             b_ids_sst, b_mask_sst, b_labels_sst = b_ids_sst.to(device),  b_mask_sst.to(device), b_labels_sst.to(device)
-            # b_mask_sst = b_mask_sst.to(device)
-            # b_labels_sst = b_labels_sst.to(device)
-
             logits = model.predict_sentiment(b_ids_sst, b_mask_sst)
             loss_sst = F.cross_entropy(logits, b_labels_sst.view(-1), reduction='sum') / batch_size_sst
 
             # Calculate loss for STS
             b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = (batch_sts['token_ids_1'], batch_sts['attention_mask_1'], 
                                        batch_sts['token_ids_2'], batch_sts['attention_mask_2'], batch_sts['labels'])
-            
-            # Move to GPU
             b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2, b_labels_sts = b_ids_sts_1.to(device), b_mask_sts_1.to(device), b_ids_sts_2.to(device), b_mask_sts_2.to(device), b_labels_sts.to(device)
             logits = model.predict_similarity(b_ids_sts_1, b_mask_sts_1, b_ids_sts_2, b_mask_sts_2)
-            loss_sts = nn.MSELoss()(logits, b_labels_sts.float().view(-1)) / batch_size_sts
+            loss_sts = nn.MSELoss()(logits, b_labels_sts.float()) / batch_size_sts
         
             # Calculate loss for PARA
             b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = (batch_para['token_ids_1'], batch_para['attention_mask_1'], 
                                        batch_para['token_ids_2'], batch_para['attention_mask_2'], batch_para['labels'])
-
-            # Move to GPU
             b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2, b_labels_para = b_ids_para_1.to(device), b_mask_para_1.to(device), b_ids_para_2.to(device), b_mask_para_2.to(device), b_labels_para.to(device)
-
             logits = model.predict_paraphrase(b_ids_para_1, b_mask_para_1, b_ids_para_2, b_mask_para_2)
             b_labels_para = b_labels_para.float()
             loss_para_fn = nn.BCEWithLogitsLoss()
-            loss_para = loss_para_fn(logits, b_labels_para[:len(logits)].view(len(logits),1)) / batch_size_para
+            loss_para = nn.BCEWithLogitsLoss()(logits, b_labels_para.float()) / batch_size_para
 
             pc_adam.pc_backward([loss_sst, loss_sts, loss_para/batch_size_para])
             pc_adam.step()
@@ -496,7 +464,7 @@ def train_multitask_gradient_surgery(args):
 
         print(f"\ntrain eval:\n")
         train_eval = model_eval_multitask(sst_train_dataloader, para_train_dataloader, sts_train_dataloader, model, device)
-        print(f"\ntest eval:\n")
+        print(f"\ndev eval:\n")
         dev_eval = model_eval_multitask(sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader, model, device)
 
         train_sst_acc, train_para_acc, train_sts_corr = train_eval[3], train_eval[0], train_eval[6]    
@@ -622,13 +590,10 @@ def train_final_layers(args):
                     b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = b_ids_1.to(device), b_mask_1.to(device), b_ids_2.to(device), b_mask_2.to(device), b_labels.to(device)
                     if name == "sts":
                         logits = model.predict_similarity(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-                        loss = nn.MSELoss()(logits, b_labels.float().view(-1)) / args.batch_size
+                        loss = nn.MSELoss()(logits, b_labels.float()) / args.batch_size
                     elif name == "quora":
                         logits = model.predict_paraphrase(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
-                        b_labels = b_labels.float()
-                        loss = nn.BCEWithLogitsLoss()(logits, b_labels) / args.batch_size
-                        # loss = nn.BCEWithLogitsLoss()(logits, b_labels.view(-1)) / args.batch_size
-                        # loss = nn.BCEWithLogitsLoss()(logits, b_labels[:len(logits)].view(len(logits),1)) / args.batch_size
+                        loss = nn.BCEWithLogitsLoss()(logits, b_labels.float()) / args.batch_size
                 loss.backward()
                 optimizer.step()
 
@@ -744,9 +709,6 @@ def get_args():
 
     # In case we want to train nli on less examples
     parser.add_argument("--nli_limit", help='', type=int, default=None)
-
-    # add in a concat arg to concantate sentence pairs
-    parser.add_argument("--concat" help='', type=bool, default=False)
 
     args = parser.parse_args()
     return args
