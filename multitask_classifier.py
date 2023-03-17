@@ -496,8 +496,6 @@ def train_final_layers(args):
     sst_dataset_len = len(sst_train_data)
     sts_dataset_len = len(sts_train_data)
     para_dataset_len = len(para_train_data)
-
-    print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
     
     # sst
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
@@ -510,8 +508,6 @@ def train_final_layers(args):
     # quora
     para_train_data = SentencePairDataset(para_train_data, args)
     para_dev_data = SentencePairDataset(para_dev_data, args)
-
-    print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
 
     #sst
     sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
