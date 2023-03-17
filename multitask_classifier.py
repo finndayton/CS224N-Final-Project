@@ -84,8 +84,8 @@ class MultitaskBERT(nn.Module):
         Thus, your output should contain 5 logits for each sentence.
         '''
         ### TODO
-        bert_output = self.bert(input_ids, attention_mask)
-        outputs = self.sentiment_dropout(bert_output['pooler_output'])
+        bert_output = self.forward(input_ids, attention_mask)
+        outputs = self.sentiment_dropout(bert_output)
         probs = self.sentiment_ln(outputs)
         return probs
 
@@ -98,22 +98,22 @@ class MultitaskBERT(nn.Module):
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
         ### TODO    
-        print(f"\n in predict_paraphrase \n")
-        print(f"input_ids_1 shape: {input_ids_1.size()}")
-        print(f"input_ids_2 shape: {input_ids_2.size()}")
-        print(f"attention_mask_1: {attention_mask_1.shape}")
-        print(f"attention_mask_2: {attention_mask_2.shape} \n")
+        # print(f"\n in predict_paraphrase \n")
+        # print(f"input_ids_1 shape: {input_ids_1.size()}")
+        # print(f"input_ids_2 shape: {input_ids_2.size()}")
+        # print(f"attention_mask_1: {attention_mask_1.shape}")
+        # print(f"attention_mask_2: {attention_mask_2.shape} \n")
         
-        torch.concat((input_ids_1, input_ids_2), dim=1)
-
-        bert_output_1 = self.bert(input_ids_1, attention_mask_1)
-        bert_output_2 = self.bert(input_ids_2, attention_mask_2)
+        bert_output_1 = self.forward(input_ids_1, attention_mask_1)
+        bert_output_2 = self.forward(input_ids_2, attention_mask_2)
 
         # Concatenate the pooled outputs
-        concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
+        concatenated_output = torch.cat([bert_output_1, bert_output_2], dim=-1)
+
+        # Apply dropout
         outputs = self.paraphrase_dropout(concatenated_output)
 
-        return self.paraphrase_ln(outputs)
+        return self.paraphrase_ln(outputs).squeeze()
 
 
 
@@ -124,30 +124,42 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit).
         '''
         ### TODO
-        bert_output_1 = self.bert(input_ids_1, attention_mask_1)
-        bert_output_2 = self.bert(input_ids_2, attention_mask_2)
+        bert_output_1 = self.forward(input_ids_1, attention_mask_1)
+        bert_output_2 = self.forward(input_ids_2, attention_mask_2)
 
         # Concatenate the pooled outputs
-        concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
+        concatenated_output = torch.cat([bert_output_1, bert_output_2], dim=-1)
+        
+        # Apply dropout
         outputs = self.similarity_dropout(concatenated_output)
 
-        return self.similarity_ln(outputs)
+        return self.similarity_ln(outputs).squeeze()
     
+    # def predict_nli(self, input_ids, attention_mask):
+    #     '''Given a batch of pairs of sentences, outputs 3 logits for each of
+    #         the 3 classes: 'neutral', 'entailment', 'contradiction'
+    #     '''
+    #     ### 
+    #     bert_output = self.bert(input_ids, attention_mask)
+    #     outputs = self.nli_dropout(bert_output)
+    #     return self.nli_ln(outputs)
+
     def predict_nli(self,
-                           input_ids_1, attention_mask_1,
-                           input_ids_2, attention_mask_2):
-        '''Given a batch of pairs of sentences, outputs 3 logits for each of
-            the 3 classes: 'neutral', 'entailment', 'contradiction'
-        '''
+                        input_ids_1, attention_mask_1,
+                        input_ids_2, attention_mask_2):
+    '''Given a batch of pairs of sentences, outputs 3 logits for each of
+        the 3 classes: 'neutral', 'entailment', 'contradiction'
+    '''
         ### TODO
-        bert_output_1 = self.bert(input_ids_1, attention_mask_1)
-        bert_output_2 = self.bert(input_ids_2, attention_mask_2)
+        bert_output_1 = self.forward(input_ids_1, attention_mask_1)
+        bert_output_2 = self.forward(input_ids_2, attention_mask_2)
 
         # Concatenate the pooled outputs
-        concatenated_output = torch.cat([bert_output_1["pooler_output"], bert_output_2["pooler_output"]], dim=1)
+        concatenated_output = torch.cat([bert_output_1, bert_output_2], dim=-1)
         outputs = self.nli_dropout(concatenated_output)
 
         return self.nli_ln(outputs)
+            
     
 
 
@@ -211,17 +223,18 @@ def pretrain_nli(args):
         train_loss = 0
         num_batches = 0
         for batch in tqdm(multinli_train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
-            b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'], batch['attention_mask_1'], 
-                                       batch['token_ids_2'], batch['attention_mask_2'], batch['labels'])
+            # b_ids_1, b_mask_1, b_ids_2, b_mask_2, b_labels = (batch['token_ids_1'], batch['attention_mask_1'], 
+            #                            batch['token_ids_2'], batch['attention_mask_2'], batch['labels'])
 
-            b_ids_1 = b_ids_1.to(device)
-            b_mask_1 = b_mask_1.to(device)
-            b_ids_2 = b_ids_2.to(device)
-            b_mask_2 = b_mask_2.to(device)
+            b_ids, b_mask, b_labels = (batch['token_ids_concat'], batch['attention_mask_concat'],batch['labels'])
+
+
+            b_ids = b_ids.to(device)
+            b_mask = b_mask.to(device)
             b_labels = b_labels.to(device)
 
             optimizer.zero_grad()
-            logits = model.predict_nli(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
+            logits = model.predict_nli(b_ids, b_mask)
 
             loss = F.cross_entropy(logits, b_labels.view(-1), reduction='sum') / batch_size_nli
 
@@ -618,8 +631,9 @@ def train_final_layers(args):
                     elif name == "quora":
                         logits = model.predict_paraphrase(b_ids_1, b_mask_1, b_ids_2, b_mask_2)
                         b_labels = b_labels.float()
+                        loss = nn.BCEWithLogitsLoss()(logits, b_labels) / args.batch_size
                         # loss = nn.BCEWithLogitsLoss()(logits, b_labels.view(-1)) / args.batch_size
-                        loss = nn.BCEWithLogitsLoss()(logits, b_labels[:len(logits)].view(len(logits),1)) / args.batch_size
+                        # loss = nn.BCEWithLogitsLoss()(logits, b_labels[:len(logits)].view(len(logits),1)) / args.batch_size
                 loss.backward()
                 optimizer.step()
 
@@ -637,12 +651,12 @@ def train_final_layers(args):
 
             print(f"Epoch {epoch} for {name}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
-    # print("Finetuning SST Layer")
-    # finetune_layer("sst", sst_train_dataloader, sst_dev_dataloader, sentiment_eval, save_path)
+    print("Finetuning SST Layer")
+    finetune_layer("sst", sst_train_dataloader, sst_dev_dataloader, sentiment_eval, save_path)
     print("Finetuning QUORA Layer")
     finetune_layer("quora", para_train_dataloader, para_dev_dataloader, paraphrase_eval, save_path)
-    # print("Finetuning STS Layer")
-    # finetune_layer("sts", sts_train_dataloader, sts_dev_dataloader, similarity_eval, save_path)
+    print("Finetuning STS Layer")
+    finetune_layer("sts", sts_train_dataloader, sts_dev_dataloader, similarity_eval, save_path)
 
 def test_model(args):
     if args.nli and args.gs_wrap and args.final_layer:
