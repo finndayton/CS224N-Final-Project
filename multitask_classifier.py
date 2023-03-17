@@ -432,8 +432,12 @@ def train_multitask_gradient_surgery(args):
             b_labels_para = b_labels_para.float()
             loss_para_fn = nn.BCEWithLogitsLoss()
             loss_para = nn.BCEWithLogitsLoss()(logits, b_labels_para.float()) / batch_size_para
-
-            pc_adam.pc_backward([loss_sst, loss_sts, loss_para/batch_size_para])
+            
+            if args.gs_wrap:
+                pc_adam.pc_backward([loss_sst, loss_sts, loss_para])
+            else:
+                pc_adam.pc_backward([loss_sst, loss_sts, loss_para/batch_size_para])
+                
             pc_adam.step()
 
             return loss_sst, loss_sts, loss_para
