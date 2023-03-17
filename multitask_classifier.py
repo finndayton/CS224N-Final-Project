@@ -369,7 +369,11 @@ def train_multitask_gradient_surgery(args):
         # Load model from nli
         saved = torch.load(args.nli_filepath)
         config = saved['model_config']
-        config['option'] = 'finetune'
+
+        config_dict = vars(config)
+        config_dict['option'] = 'finetune'
+        config = SimpleNamespace(**config_dict)
+        
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
         print("Gradient Surgery training loaded model from: ", args.nli_filepath)
