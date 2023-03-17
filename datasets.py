@@ -151,8 +151,6 @@ class SentencePairDataset(Dataset):
                 token_ids2, token_type_ids2, attention_mask2,
                 labels,sent_ids)
 
-            
-
     def collate_fn(self, all_data):
 
         (token_ids, token_type_ids, attention_mask,
@@ -236,8 +234,6 @@ def load_multitask_test_data():
             sent = record['sentence'].lower().strip()
             sentiment_data.append(sent)
 
-    print(f"Loaded {len(sentiment_data)} test examples from {sentiment_filename}")
-
     paraphrase_data = []
     with open(paraphrase_filename, 'r') as fp:
         for record in csv.DictReader(fp,delimiter = '\t'):
@@ -245,16 +241,12 @@ def load_multitask_test_data():
                                     preprocess_string(record['sentence2']),
                                     ))
 
-    print(f"Loaded {len(paraphrase_data)} test examples from {paraphrase_filename}")
-
     similarity_data = []
     with open(similarity_filename, 'r') as fp:
         for record in csv.DictReader(fp,delimiter = '\t'):
             similarity_data.append((preprocess_string(record['sentence1']),
                                     preprocess_string(record['sentence2']),
                                     ))
-
-    print(f"Loaded {len(similarity_data)} test examples from {similarity_filename}")
 
     return sentiment_data, paraphrase_data, similarity_data
 
@@ -286,11 +278,7 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
             i += 1
             if nli_limit and i == nli_limit:
                 break
-    print(f"Loaded {len(multinli_data)} {split} examples from {multinli_filename}")
-    print("Num 'neutral' examples: ", multinli_labels[0])
-    print("Num 'entailment' examples: ", multinli_labels[1])
-    print("Num 'contradiction' examples: ", multinli_labels[2])
-    
+
     sentiment_data = []
     sentiment_labels = {}
     if split == 'test':
@@ -308,8 +296,6 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
                 if label not in sentiment_labels:
                     sentiment_labels[label] = len(sentiment_labels)
                 sentiment_data.append((sent, label,sent_id))
-
-    print(f"Loaded {len(sentiment_data)} {split} examples from {sentiment_filename}")
 
     paraphrase_data = []
     if split == 'test':
@@ -331,8 +317,6 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
                 except:
                     pass
 
-    print(f"Loaded {len(paraphrase_data)} {split} examples from {paraphrase_filename}")
-
     similarity_data = []
     if split == 'test':
         with open(similarity_filename, 'r') as fp:
@@ -348,7 +332,5 @@ def load_multitask_data(sentiment_filename,paraphrase_filename,similarity_filena
                 similarity_data.append((preprocess_string(record['sentence1']),
                                         preprocess_string(record['sentence2']),
                                         float(record['similarity']),sent_id))
-
-    print(f"Loaded {len(similarity_data)} {split} examples from {similarity_filename}")
-
+                
     return sentiment_data, len(sentiment_labels), paraphrase_data, similarity_data, multinli_data, len(multinli_labels)
