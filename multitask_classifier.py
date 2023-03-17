@@ -94,7 +94,15 @@ class MultitaskBERT(nn.Module):
         Note that your output should be unnormalized (a logit); it will be passed to the sigmoid function
         during evaluation, and handled as a logit by the appropriate loss function.
         '''
-        ### TODO
+        ### TODO    
+        print(f"\n in predict_paraphrase \n")
+        print(f"input_ids_1 shape: {input_ids_1.size()}")
+        print(f"input_ids_2 shape: {input_ids_2.size()}")
+        print(f"attention_mask_1: {attention_mask_1.shape}")
+        print(f"attention_mask_2: {attention_mask_2.shape} \n")
+        
+        torch.concat((input_ids_1, input_ids_2), dim=1)
+
         bert_output_1 = self.bert(input_ids_1, attention_mask_1)
         bert_output_2 = self.bert(input_ids_2, attention_mask_2)
 
@@ -623,12 +631,12 @@ def train_final_layers(args):
 
             print(f"Epoch {epoch} for {name}: train loss :: {train_loss :.3f}, train acc :: {train_acc :.3f}, dev acc :: {dev_acc :.3f}")
 
-    print("Finetuning SST Layer")
-    finetune_layer("sst", sst_train_dataloader, sst_dev_dataloader, sentiment_eval, save_path)
+    # print("Finetuning SST Layer")
+    # finetune_layer("sst", sst_train_dataloader, sst_dev_dataloader, sentiment_eval, save_path)
     print("Finetuning QUORA Layer")
     finetune_layer("quora", para_train_dataloader, para_dev_dataloader, paraphrase_eval, save_path)
-    print("Finetuning STS Layer")
-    finetune_layer("sts", sts_train_dataloader, sts_dev_dataloader, similarity_eval, save_path)
+    # print("Finetuning STS Layer")
+    # finetune_layer("sts", sts_train_dataloader, sts_dev_dataloader, similarity_eval, save_path)
 
 def test_model(args):
     if args.nli and args.gs_wrap and args.final_layer:
@@ -722,6 +730,8 @@ def get_args():
     # In case we want to train nli on less examples
     parser.add_argument("--nli_limit", help='', type=int, default=None)
 
+    # add in a concat arg to concantate sentence pairs
+    parser.add_argument("--concat" help='', type=bool, default=False)
 
     args = parser.parse_args()
     return args
@@ -759,6 +769,7 @@ if __name__ == "__main__":
             train_multitask_gradient_surgery(args)
 
         if args.final_layer == 'train':
+            print("here")
             args.option = 'pretrain'
             train_final_layers(args)
 
