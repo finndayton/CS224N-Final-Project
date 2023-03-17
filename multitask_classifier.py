@@ -186,7 +186,7 @@ def pretrain_nli(args):
               'num_labels': num_sentiment_labels,
               'hidden_size': 768,
               'data_dir': '.',
-              'option': args.option}
+              'option': 'finetune'}
 
     config = SimpleNamespace(**config)
 
@@ -258,6 +258,7 @@ def train_multitask(args):
         # Get model from pretrain
         saved = torch.load(args.nli_pretrain_filepath)
         config = saved['model_config']
+        config['finetune'] = 'finetune'
         model = MultitaskBERT(config)
     else:
         # Init model
@@ -265,7 +266,7 @@ def train_multitask(args):
                 'num_labels': num_sentiment_labels,
                 'hidden_size': 768,
                 'data_dir': '.',
-                'option': args.option}
+                'option': 'finetune'}
 
         config = SimpleNamespace(**config)
 
@@ -377,6 +378,7 @@ def train_multitask_gradient_surgery(args):
         # Load model from nli
         saved = torch.load(args.nli_pretrain_filepath)
         config = saved['model_config']
+        config['option'] = 'finetune'
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
 
@@ -391,7 +393,7 @@ def train_multitask_gradient_surgery(args):
                 'num_labels': num_sentiment_labels,
                 'hidden_size': 768,
                 'data_dir': '.',
-                'option': args.option}
+                'option': 'finetune'}
 
         config = SimpleNamespace(**config)
 
@@ -537,41 +539,34 @@ def train_final_layers(args):
     if args.nli and args.gs_wrap:
         save_path = args.nli_gs_wrap_final_layer_filepath
         saved = torch.load(args.nli_gs_wrap_filepath)
-        config = saved['model_config']
-        model = MultitaskBERT(config)
-        model.load_state_dict(saved['model'])
     elif args.nli and args.gs_batch_diff:
         save_path = args.nli_gs_batch_diff_final_layer_filepath
         saved = torch.load(args.nli_gs_batch_diff_filepath)
-        config = saved['model_config']
-        model = MultitaskBERT(config)
-        model.load_state_dict(saved['model'])
     elif args.gs_wrap:
         save_path = args.gs_wrap_final_layer_filepath
         saved = torch.load(args.gs_wrap_filepath)
-        config = saved['model_config']
-        model = MultitaskBERT(config)
-        model.load_state_dict(saved['model'])
     elif args.gs_batch_diff:
         save_path = args.gs_batch_diff_final_layer_filepath
         saved = torch.load(args.gs_batch_diff_filepath)
-        config = saved['model_config']
-        model = MultitaskBERT(config)
-        model.load_state_dict(saved['model'])
     elif args.nli:
         save_path = args.nli_final_layer_filepath
         saved = torch.load(args.nli_filepath)
+    else:
+        save_path = args.final_layer_filepath
+        saved = None
+
+    if saved:
         config = saved['model_config']
+        config['option'] = 'pretrain'
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
     else:
-        save_path = args.final_layer_filepath
         # Init model
         config = {'hidden_dropout_prob': args.hidden_dropout_prob,
                 'num_labels': num_sentiment_labels,
                 'hidden_size': 768,
                 'data_dir': '.',
-                'option': args.option}
+                'option': 'pretrain'}
                 
         config = SimpleNamespace(**config)
         model = MultitaskBERT(config)
@@ -755,17 +750,14 @@ if __name__ == "__main__":
     seed_everything(args.seed)  # fix the seed for reproducibility
     if args.test_model is None:
         if args.nli == 'train':
-            args.option = "finetune"
             args.nli_pretrain_filepath = f'nli-{args.epochs}-{args.lr}.pt'
             pretrain_nli(args)
 
         if args.gs_batch_diff == 'train':
-            args.option = "finetune"
             args.gradient_surgery_filepath = f'gs_batch_diff-{args.epochs}-{args.lr}.pt'
             train_multitask_gradient_surgery(args)
 
         if args.final_layer == 'train':
-            args.option = 'pretrain'
             train_final_layers(args)
 
     print(f"\ntesting model commencing\n")
