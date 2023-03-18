@@ -20,6 +20,8 @@ from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report, f1_score, recall_score, accuracy_score
 from tqdm import tqdm
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 
 from datasets import load_multitask_data, load_multitask_test_data, \
     SentenceClassificationDataset, SentenceClassificationTestDataset, \
@@ -57,8 +59,9 @@ def model_eval_sst(dataloader, model, device):
 
     return acc, f1, y_pred, y_true, sents, sent_ids
 
-def sentiment_eval(sentiment_dataloader, model, device):
+def sentiment_eval(sentiment_dataloader, model, device, doAnalysis=False, train_dataset=None):
     model.eval()  # switch to eval model, will turn off randomness like dropout
+    analysis = []
     with torch.no_grad():
         sst_y_true = []
         sst_y_pred = []
@@ -67,7 +70,7 @@ def sentiment_eval(sentiment_dataloader, model, device):
         # Evaluate sentiment classification.
         for step, batch in enumerate(tqdm(sentiment_dataloader, desc=f'eval', disable=TQDM_DISABLE)):
             b_ids, b_mask, b_labels, b_sent_ids = batch['token_ids'], batch['attention_mask'], batch['labels'], batch['sent_ids']
-
+            b_sents = batch['sents']
             b_ids = b_ids.to(device)
             b_mask = b_mask.to(device)
 
@@ -75,14 +78,39 @@ def sentiment_eval(sentiment_dataloader, model, device):
             y_hat = logits.argmax(dim=-1).flatten().cpu().numpy()
             b_labels = b_labels.flatten().cpu().numpy()
 
+            # Record example for analysis
+            if doAnalysis:
+                for i in range(len(b_ids)):
+                    example = {}
+                    example['len'] = len(b_sents[i])
+                    example['label'] = b_labels[i]
+                    example['pred'] = y_hat[i]
+                    example['rank'] = sum([ 0 if id.item() not in train_dataset.rank_map else train_dataset.rank_map[id.item()] for id in b_ids[i]])
+                    example['accurate'] = 1 if b_labels[i] == y_hat[i] else 0
+                    analysis.append(example)
+
             sst_y_pred.extend(y_hat)
             sst_y_true.extend(b_labels)
             sst_sent_ids.extend(b_sent_ids)
 
+        if doAnalysis:
+            analysis_df = pd.DataFrame(analysis)
+            print("Saving analysis plots...")
+            groupBySentLen = analysis_df.groupby('len', as_index=False).agg({'accurate': 'mean'})
+            groupBySentLen.plot(kind='line', x='len', y='accurate')
+            plt.savefig('sentiment_predictions_by_length.png')
+            groupByRank = analysis_df.groupby('rank', as_index=False).agg({'accurate': 'mean'})
+            groupByRank.plot(kind='line', x='rank', y='accurate')
+            plt.savefig('sentiment_predictions_by_rank.png')
+            groupByLabel = analysis_df.groupby('label', as_index=False).agg({'accurate': 'mean'})
+            groupByLabel['label'] = groupByLabel['label'].astype('category')
+            groupByLabel.plot(kind='line', x='label', y='accurate')
+            plt.savefig('sentiment_predictions_by_label.png')
+
         sentiment_accuracy = np.mean(np.array(sst_y_pred) == np.array(sst_y_true))
         return sentiment_accuracy,sst_y_pred, sst_sent_ids
 
-def paraphrase_eval(paraphrase_dataloader, model, device):
+def paraphrase_eval(paraphrase_dataloader, model, device, train_dataset=None):
     model.eval()  # switch to eval model, will turn off randomness like dropout
     with torch.no_grad():
         para_y_true = []
@@ -113,7 +141,7 @@ def paraphrase_eval(paraphrase_dataloader, model, device):
         paraphrase_accuracy = np.mean(np.array(para_y_pred) == np.array(para_y_true))
         return paraphrase_accuracy, para_y_pred, para_sent_ids
 
-def similarity_eval(sts_dataloader, model, device):
+def similarity_eval(sts_dataloader, model, device, train_dataset=None):
     model.eval()  # switch to eval model, will turn off randomness like dropout
     with torch.no_grad():
         sts_y_true = []
@@ -181,10 +209,11 @@ def nli_eval(nli_dataloader, model, device):
 def model_eval_multitask(sentiment_dataloader,
                          paraphrase_dataloader,
                          sts_dataloader,
-                         model, device):
-        paraphrase_accuracy, para_y_pred, para_sent_ids = paraphrase_eval(paraphrase_dataloader, model, device)
-        sentiment_accuracy,sst_y_pred, sst_sent_ids = sentiment_eval(sentiment_dataloader, model, device)
-        sts_corr, sts_y_pred, sts_sent_ids = similarity_eval(sts_dataloader, model, device)
+                         model, device, 
+                         train_sentiment_dataset=None, train_paraphrase_dataset=None, train_sts_dataset=None):
+        sentiment_accuracy,sst_y_pred, sst_sent_ids = sentiment_eval(sentiment_dataloader, model, device, doAnalysis=True, train_dataset=train_sentiment_dataset)
+        paraphrase_accuracy, para_y_pred, para_sent_ids = paraphrase_eval(paraphrase_dataloader, model, device, train_dataset=train_paraphrase_dataset)
+        sts_corr, sts_y_pred, sts_sent_ids = similarity_eval(sts_dataloader, model, device, train_dataset=train_sts_dataset)
 
         print(f'Paraphrase detection accuracy: {paraphrase_accuracy:.3f}')
         print(f'Sentiment classification accuracy: {sentiment_accuracy:.3f}')
@@ -271,12 +300,16 @@ def model_eval_test_multitask(sentiment_dataloader,
 
 
 def test_model_multitask(args, model, device):
+        
+        sst_train_data, num_sentiment_labels,para_train_data, sts_train_data, multinli_train_data, num_multinli_labels = load_multitask_data(args.sst_train,args.para_train,args.sts_train, args.multinli_train, split ='train', nli_limit=args.nli_limit)
+
         sst_test_data, num_labels,para_test_data, sts_test_data, nli_data, nli_labels = \
             load_multitask_data(args.sst_test,args.para_test, args.sts_test, args.multinli_train, split='test')
 
         sst_dev_data, num_labels,para_dev_data, sts_dev_data, nli_dev_data, nli_dev_labels = \
             load_multitask_data(args.sst_dev,args.para_dev,args.sts_dev, args.multinli_dev, split='dev')
 
+        sst_train_data = SentenceClassificationDataset(sst_train_data, args, rank_map=True)
         sst_test_data = SentenceClassificationTestDataset(sst_test_data, args)
         sst_dev_data = SentenceClassificationDataset(sst_dev_data, args)
 
@@ -305,7 +338,8 @@ def test_model_multitask(args, model, device):
             dev_sentiment_accuracy,dev_sst_y_pred, dev_sst_sent_ids, dev_sts_corr, \
             dev_sts_y_pred, dev_sts_sent_ids = model_eval_multitask(sst_dev_dataloader,
                                                                     para_dev_dataloader,
-                                                                    sts_dev_dataloader, model, device)
+                                                                    sts_dev_dataloader, model, device,
+                                                                    train_sentiment_dataset=sst_train_data)
 
         test_para_y_pred, test_para_sent_ids, test_sst_y_pred, \
             test_sst_sent_ids, test_sts_y_pred, test_sts_sent_ids = \

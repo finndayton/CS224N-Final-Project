@@ -27,11 +27,13 @@ def preprocess_string(s):
 
 
 class SentenceClassificationDataset(Dataset):
-    def __init__(self, dataset, args, max_len=None):
+    def __init__(self, dataset, args, max_len=None, rank_map=False):
         self.dataset = dataset
         self.p = args
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.max_len = max_len
+        if rank_map :
+            self.rank_map = self.get_rank_map(dataset)
 
     def __len__(self):
         if self.max_len:
@@ -64,10 +66,34 @@ class SentenceClassificationDataset(Dataset):
                 'attention_mask': attention_mask,
                 'labels': labels,
                 'sents': sents,
-                'sent_ids': sent_ids
+                'sent_ids': sent_ids,
             }
 
         return batched_data
+
+    def get_rank_map(self, dataset):
+        print("Building Rank Map...")
+        freq_map = defaultdict(int)
+        token_ids, *_ = self.pad_data(dataset)
+        for row in token_ids:
+            for id in row:
+                id = id.item()
+                if id != 0 and id != 102 and id != 101:
+                    freq_map[id]+=1
+        freq_map = freq_map
+
+        freq_rank_map = {}
+        rank = 1
+        # Rank 1 is the most rare, larger rankings are for more common words
+        for _, freq in sorted(freq_map.items(), key=lambda item: item[1]):
+            if freq not in freq_rank_map:
+                freq_rank_map[freq] = rank
+                rank+=1
+        rank_map = {}
+        for key, freq in freq_map.items():
+            rank_map[key] = freq_rank_map[freq]
+        print("Finished building rank map of size ", len(rank_map))
+        return rank_map
 
 
 class SentenceClassificationTestDataset(Dataset):
