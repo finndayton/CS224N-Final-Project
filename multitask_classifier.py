@@ -435,7 +435,6 @@ def train_multitask_gradient_surgery(args):
 
         # GS Wrap around
         if args.gs_wrap:
-            print(f"Performing GS_WRAP. Double check dataloader lengths: sst_train_dataloader: {len(sst_train_dataloader)}, sts_train_dataloader: {len(sts_train_dataloader)}, para_train_dataloader: {len(para_train_dataloader)}")
             for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
                 
                 loss_sst, loss_sts, loss_para = gradient_surgery_batch_step(batch_sst, batch_sts, batch_para)
@@ -447,8 +446,7 @@ def train_multitask_gradient_surgery(args):
                 num_batches += 1
 
         # GS Different Batch Sizes
-        else: 
-            print(f"Performing GS_BATCH_DIFF. Double check dataloader lengths: sst_train_dataloader: {len(sst_train_dataloader)}, sts_train_dataloader: {len(sts_train_dataloader)}, para_train_dataloader: {len(para_train_dataloader)}")
+        else:
             sst_train_dataloader_iter = iter(sst_train_dataloader)
             sts_train_dataloader_iter = iter(sts_train_dataloader)
             para_train_dataloader_iter = iter(para_train_dataloader)
