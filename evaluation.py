@@ -95,17 +95,40 @@ def sentiment_eval(sentiment_dataloader, model, device, doAnalysis=False, train_
 
         if doAnalysis:
             analysis_df = pd.DataFrame(analysis)
-            print("Saving analysis plots...")
-            groupBySentLen = analysis_df.groupby('len', as_index=False).agg({'accurate': 'mean'})
-            groupBySentLen.plot(kind='line', x='len', y='accurate')
-            plt.savefig('sentiment_predictions_by_length.png')
-            groupByRank = analysis_df.groupby('rank', as_index=False).agg({'accurate': 'mean'})
-            groupByRank.plot(kind='line', x='rank', y='accurate')
-            plt.savefig('sentiment_predictions_by_rank.png')
+            # Plot length by accuracy
+            len_df = analysis_df.groupby('len', as_index=False).agg({'accurate': 'mean'})
+            n_bins = 50
+            hist, bins, _ = plt.hist(len_df['len'], bins=n_bins)
+            len_df['bin'] = pd.cut(len_df['len'], bins=bins, labels=bins[:-1])
+            len_df = len_df.groupby('bin', as_index=False).agg({'accurate': 'mean'})
+            len_df['bin'] = len_df['bin'].astype(int)
+            len_df.plot(kind='line', x='bin', y='accurate')
+            plt.title(f'Sentiment Accuracy by Sentence Length')
+            plt.xlabel('Sentence Length')
+            plt.ylabel('Accuracy')
+            plt.savefig(f'sentiment_predictions_by_length.png')
+
+            # Plot rank by accuracy
+            rank_df = analysis_df.groupby('rank', as_index=False).agg({'accurate': 'mean'})
+            n_bins = 20
+            hist, bins, _ = plt.hist(rank_df['rank'], bins=n_bins)
+            rank_df['bin'] = pd.cut(rank_df['rank'], bins=bins, labels=bins[:-1])
+            rank_df = rank_df.groupby('bin', as_index=False).agg({'accurate': 'mean'})
+            rank_df['bin'] = rank_df['bin'].astype(int)
+            rank_df.plot(kind='line', x='bin', y='accurate')
+            plt.title(f'Sentiment Accuracy by Sentence Rarity')
+            plt.xlabel('Rarity Rank (Sentences with common words have higher rank)')
+            plt.ylabel('Accuracy')
+            plt.savefig(f'sentiment_predictions_by_rank.png')
+
+            # Plot label by accuracy
             groupByLabel = analysis_df.groupby('label', as_index=False).agg({'accurate': 'mean'})
             groupByLabel['label'] = groupByLabel['label'].astype('category')
-            groupByLabel.plot(kind='line', x='label', y='accurate')
-            plt.savefig('sentiment_predictions_by_label.png')
+            groupByLabel.plot(kind='bar', x='label', y='accurate')
+            plt.xlabel('Label')
+            plt.ylabel('Accuracy')
+            plt.xticks(rotation='horizontal')
+            plt.savefig(f'sentiment_predictions_by_label.png')
 
         sentiment_accuracy = np.mean(np.array(sst_y_pred) == np.array(sst_y_true))
         return sentiment_accuracy,sst_y_pred, sst_sent_ids
