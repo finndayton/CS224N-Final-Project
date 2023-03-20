@@ -101,10 +101,7 @@ class MultitaskBERT(nn.Module):
         bert_output_1 = self.forward(input_ids_1, attention_mask_1)
         bert_output_2 = self.forward(input_ids_2, attention_mask_2)
 
-        # Concatenate the pooled outputs
         concatenated_output = torch.cat([bert_output_1, bert_output_2], dim=-1)
-
-        # Apply dropout
         outputs = self.paraphrase_dropout(concatenated_output)
 
         return self.paraphrase_ln(outputs).squeeze()
@@ -119,10 +116,7 @@ class MultitaskBERT(nn.Module):
         bert_output_1 = self.forward(input_ids_1, attention_mask_1)
         bert_output_2 = self.forward(input_ids_2, attention_mask_2)
 
-        # Concatenate the pooled outputs
         concatenated_output = torch.cat([bert_output_1, bert_output_2], dim=-1)
-        
-        # Apply dropout
         outputs = self.similarity_dropout(concatenated_output)
 
         return self.similarity_ln(outputs).squeeze()
@@ -137,7 +131,6 @@ class MultitaskBERT(nn.Module):
         bert_output_1 = self.forward(input_ids_1, attention_mask_1)
         bert_output_2 = self.forward(input_ids_2, attention_mask_2)
 
-        # Concatenate the pooled outputs
         concatenated_output = torch.cat([bert_output_1, bert_output_2], dim=-1)
         outputs = self.nli_dropout(concatenated_output)
 
@@ -158,8 +151,6 @@ def save_model(model, optimizer, args, config, filepath):
     torch.save(save_info, filepath)
     print(f"save the model to {filepath}")
 
-
-## Currently only trains on sst dataset
 def pretrain_nli(args):
     save_path = args.nli_filepath
 
@@ -355,21 +346,20 @@ def train_multitask_gradient_surgery(args):
     para_dev_dataloader = DataLoader(para_dev_data, shuffle=False, batch_size=batch_size_para,
                                     collate_fn=para_dev_data.collate_fn)
 
-
     sst_dataloader_len = len(sst_train_dataloader)
     sts_dataloader_len = len(sts_train_dataloader)
     para_dataloader_len = len(para_train_dataloader)
-
     min_dataloader_len = min(sst_dataloader_len, sts_dataloader_len, para_dataloader_len)
-
-    print(f"\n sst_train_dataloader: {sst_dataloader_len}, sts_train_dataloader: {sts_dataloader_len}, para_train_dataloader: {para_dataloader_len}\n")
-
     
     if args.nli:
         # Load model from nli
         saved = torch.load(args.nli_filepath)
         config = saved['model_config']
-        config['option'] = 'finetune'
+
+        config_dict = vars(config)
+        config_dict['option'] = 'finetune'
+        config = SimpleNamespace(**config_dict)
+        
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
         print("Gradient Surgery training loaded model from: ", args.nli_filepath)
@@ -445,7 +435,6 @@ def train_multitask_gradient_surgery(args):
 
         # GS Wrap around
         if args.gs_wrap:
-            print(f"Performing GS_WRAP. Double check dataloader lengths: sst_train_dataloader: {len(sst_train_dataloader)}, sts_train_dataloader: {len(sts_train_dataloader)}, para_train_dataloader: {len(para_train_dataloader)}")
             for batch_sst, batch_sts, batch_para in tqdm(zip(sst_train_dataloader, sts_train_dataloader, para_train_dataloader), desc=f'train-{epoch}', disable=TQDM_DISABLE):
                 
                 loss_sst, loss_sts, loss_para = gradient_surgery_batch_step(batch_sst, batch_sts, batch_para)
@@ -457,8 +446,7 @@ def train_multitask_gradient_surgery(args):
                 num_batches += 1
 
         # GS Different Batch Sizes
-        else: 
-            print(f"Performing GS_BATCH_DIFF. Double check dataloader lengths: sst_train_dataloader: {len(sst_train_dataloader)}, sts_train_dataloader: {len(sts_train_dataloader)}, para_train_dataloader: {len(para_train_dataloader)}")
+        else:
             sst_train_dataloader_iter = iter(sst_train_dataloader)
             sts_train_dataloader_iter = iter(sts_train_dataloader)
             para_train_dataloader_iter = iter(para_train_dataloader)
@@ -479,9 +467,7 @@ def train_multitask_gradient_surgery(args):
         train_loss_sts = train_loss_sts / (num_batches)
         train_loss_para = train_loss_para / (num_batches)
 
-        print(f"\ntrain eval:\n")
         train_eval = model_eval_multitask(sst_train_dataloader, para_train_dataloader, sts_train_dataloader, model, device)
-        print(f"\ndev eval:\n")
         dev_eval = model_eval_multitask(sst_dev_dataloader, para_dev_dataloader, sts_dev_dataloader, model, device)
 
         train_sst_acc, train_para_acc, train_sts_corr = train_eval[3], train_eval[0], train_eval[6]    
@@ -508,8 +494,6 @@ def train_final_layers(args):
     sst_dataset_len = len(sst_train_data)
     sts_dataset_len = len(sts_train_data)
     para_dataset_len = len(para_train_data)
-
-    print(f"\nsst_train_data: {sst_dataset_len}, sts_train_data: {sts_dataset_len}, para_train_data: {para_dataset_len}\n")
     
     # sst
     sst_train_data = SentenceClassificationDataset(sst_train_data, args)
@@ -522,8 +506,6 @@ def train_final_layers(args):
     # quora
     para_train_data = SentencePairDataset(para_train_data, args)
     para_dev_data = SentencePairDataset(para_dev_data, args)
-
-    print(f"\nsst_train_data: {len(sst_train_data)}, sts_train_data: {len(sts_train_data)}, para_train_data: {len(para_train_data)}\n")
 
     #sst
     sst_train_dataloader = DataLoader(sst_train_data, shuffle=True, batch_size=args.batch_size,
@@ -564,7 +546,11 @@ def train_final_layers(args):
     if load_path:
         saved = torch.load(load_path)
         config = saved['model_config']
-        config['option'] = 'pretrain'
+      
+        config_dict = vars(config)  # convert the namespace object to a dictionary
+        config_dict['option'] = 'pretrain' 
+        config = SimpleNamespace(**config_dict)  # convert the dictionary back to a namespace object
+
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
         print("Final layer training loaded model from: ", load_path)
@@ -583,7 +569,6 @@ def train_final_layers(args):
 
     lr = args.lr
     optimizer = AdamW(model.parameters(), lr=lr)
-    # best_dev_acc = 0
 
     def finetune_layer(name, train_dataloader, dev_dataloader, eval_fn, save_path):
         # Run for the specified number of epochs
@@ -665,15 +650,16 @@ def test_model(args):
     with torch.no_grad():
         device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
         if args.test_model:
-            saved = torch.load(args.test_model)
+            file_path = args.test_model
         else:
-            saved = torch.load(load_filepath)
+            file_path = load_filepath
+        saved = torch.load(file_path)
         config = saved['model_config']
 
         model = MultitaskBERT(config)
         model.load_state_dict(saved['model'])
         model = model.to(device)
-        print(f"Loaded model to test from {args.filepath}")
+        print(f"Loaded model to test from {file_path}")
 
         test_model_multitask(args, model, device)
 
